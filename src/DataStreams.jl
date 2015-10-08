@@ -30,7 +30,6 @@ types(sch::Schema) = sch.types
 Base.size(sch::Schema) = (sch.rows,sch.cols)
 Base.size(sch::Schema,i::Int) = i == 1 ? sch.rows : i == 2 ? sch.cols : 0
 
-# TODO: define Base.show for Schema
 export DataStream
 type DataStream{T} <: IO
     schema::Schema
@@ -61,3 +60,6 @@ DataStream(types::Vector{DataType},rows::Int) = DataStream(Schema(types,rows))
 # Base.getindex{T}(ds::DataStream{Array{NullableArrays.NullableArray{T,1},1}}, i::Int, j::Int) = ds.data[j][i]
 
 end # module
+
+#TODO
+ # define show for Schema, DataStream
