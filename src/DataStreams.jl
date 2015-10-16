@@ -1,14 +1,39 @@
+"""
+The `DataStreams.jl` packages defines a data processing framework based on Sources, Sinks, and the `Data.stream!` function.
+
+`DataStreams` defines the common infrastructure leveraged by individual packages to create systems of various
+data sources and sinks that talk to each other in a unified, consistent way.
+
+The workflow enabled by the `DataStreams` framework involves:
+ * constructing new `Source` types to allow streaming data from files, databases, etc.
+ * `Data.stream!` those datasets to newly created or existing `Sink` types
+ * convert `Sink` types that have received data into new `Source` types
+ * continue to `Data.stream!` from `Source`s to `Sink`s
+
+The typical approach for a new package to "satisfy" the DataStreams interface is to:
+ * Define a `Source` type that wraps an "ultimate data source" (i.e. a file, database table/query, etc.) and fulfills the `Source` interface (see `?Data.Source`)
+ * Define a `Sink` type that can create or write data to an "ultimate data source" and fulfills the `Sink` interface (see `?Data.Sink`)
+ * Define appropriate `Data.stream!(::Source, ::Sink)` methods as needed between various combinations of Sources and Sinks;
+   i.e. define `Data.stream!(::NewPackage.Source, ::CSV.Sink)` and `Data.stream!(::CSV.Source, ::NewPackage.Sink)`
+"""
 module DataStreams
 
-importall Base.Operators
+export Data
+module Data
 
-export PointerString
+"""
+A custom "weakref" string type that only stores a Ptr{UInt8} and len::Int.
+Allows for extremely efficient string parsing/movement in some cases between files and databases.
+***Please note that no original reference is kept to the parent string/memory, so `PointerString`s become unsafe
+once the parent object goes out of scope (i.e. loses a reference to it)***
+"""
 immutable PointerString <: AbstractString
     ptr::Ptr{UInt8}
     len::Int
 end
-export NULLSTRING
+
 const NULLSTRING = PointerString(C_NULL,0)
+Base.show(io::IO, ::Type{PointerString}) = print(io,"PointerString")
 Base.show(io::IO, x::PointerString) = print(io,x == NULLSTRING ? "PointerString(\"\")" : "PointerString(\"$(bytestring(x.ptr,x.len))\")")
 Base.showcompact(io::IO, x::PointerString) = print(io,x == NULLSTRING ? "\"\"" : "\"$(bytestring(x.ptr,x.len))\"")
 Base.endof(x::PointerString) = x.len
@@ -16,31 +41,88 @@ Base.string(x::PointerString) = x == NULLSTRING ? "" : "$(bytestring(x.ptr,x.len
 Base.convert(::Type{ASCIIString}, x::PointerString) = convert(ASCIIString, string(x))
 Base.convert(::Type{UTF8String}, x::PointerString) = convert(UTF8String, string(x))
 
-using NullableArrays
+"""
+A `Data.Source` type holds data that can be read/queried/parsed/viewed/streamed; i.e. an "ultimate data source"
+To clarify, there are two distinct types of "source":
+  1) the "ultimate data source", which would be the file, database, API, structure, etc; i.e. the actual data
+  2) the `Data.Source` julia object that wraps an "ultimate source" and provides the DataStreams interface
 
-export stream!
-function stream!
+`Source` types have two different types of constructors:
+  1) "independent constructors" that wrap "ultimate data sources"
+  2) "sink constructors" where a `Data.Sink` object that has received data is turned into a `Source`
+
+`Source`s also have a, currently implicit, notion of state:
+  * `BEGINNING`: a `Source` is in this state immediately after being constructed and is ready to be used; i.e. ready to read/parse/query/stream data from it
+  * `READING`: the ingestion of data from this `Source` has started and has not finished yet
+  * `DONE`: the ingestion process has exhausted all data expected from this `Source` instance
+
+The `Data.Source` interface includes the following:
+ * `Data.schema(::Data.Source) => Data.Schema`; typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required
+ * `Data.reset!(::Data.Source)`; used to reset a `Source` type from `READING` or `DONE` to the `BEGINNING` state, ready to be read from again
+ * `eof(::Data.Source)`; indicates whether the `Source` type is in the `DONE` state; i.e. all data has been exhausted from this source
+
+"""
+abstract Source <: IO
+
+# TODO: flesh out the "fetching"/"reading"/"ingesting" interface for `Source`s
+ # getting results: getrow(::Source) => Any[], getcol(::Source) => T[], getfield(::Source) => T; getrows, getcols
+ # iterating through results: eachrow(::Source) => Any[], eachcol(::Source) => T[], eachfield(::Source) => T
+ # printing/viewing results: printrow(::Source), printcol(::Source), printfield(::Source); printrows, printcols
+function reset!
+end
+function getfield
+end
+function getrow
+end
+function eachfield
+end
+function eachrow
+end
+function printfield
+end
+function printrow
 end
 
-export IOSource, IOSink
+"""
+A `Data.Sink` type represents a data destination; i.e. an "ultimate data source" such as a database, file, API endpoint, etc.
 
-abstract IOSource <: IO
-abstract IOSink   <: IO
+There are two broad types of `Sink`s:
+  1) "new sinks": an independent `Sink` constructor creates a *new* "ultimate data source" that can be streamed to
+  2) "existing sinks": the `Sink` wraps an already existing "ultimate data source" (or `Source` object that wraps an "ultimate data source").
+    Upon construction of these Sinks, there is no new creation of "ultimate data source"s; the "ulitmate data source" is simply wrapped to replace or append to
 
-typealias SourceOrSink Union{IOSource,IOSink}
+`Sink`s also have notions of state:
+  * `BEGINNING`: the `Sink` is freshly constructed and ready to stream data to; this includes initial metadata like column headers
+  * `WRITING`: data has been streamed to the `Sink`, but is still open to receive more data
+  * `DONE`: the `Sink` has been closed and can no longer receive data
 
-schema(io::SourceOrSink) = io.schema
-header(io::SourceOrSink) = header(schema(io))
-types(io::SourceOrSink) = types(schema(io))
-Base.size(io::IOSource) = size(schema(io))
+The `Data.Sink` interface includes the following:
+ * `Data.schema(::Data.Sink) => Data.Schema`; typically the `Sink` type will store the `Data.Schema` directly, but this isn't strictly required
+"""
+abstract Sink <: IO
+typealias SourceOrSink Union{Source,Sink}
 
-export Schema
+"""
+`Data.stream!(::Data.Source, ::Data.Sink)` starts transfering data from a newly constructed `Source` type to a newly constructed `Sink` type.
+Data transfer typically continues until `eof(source) == true`, i.e. the `Source` is exhausted, at which point the `Sink` is closed and may
+no longer receive data. See individual `Data.stream!` methods for more details on specific `Source`/`Sink` combinations.
+"""
+function stream!#(::Source,::Sink)
+end
+
+"""
+A `Data.Schema` describes a tabular dataset (i.e. a set of optionally named, typed columns with records as rows)
+Access to `Data.Schema` fields includes:
+ * `Data.header(schema)` to return the header/column names in a `Data.Schema`
+ * `Data.types(schema)` to return the column types in a `Data.Schema`
+ * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`
+"""
 type Schema
     header::Vector{UTF8String}  # column names
-    types::Vector{DataType}     # types of columns
-    rows::Int                   # the number of rows in the dataset
-    cols::Int                   # of columns in a dataset
-    function Schema(header::Vector,types::Vector{DataType},rows::Integer=0,cols::Integer=0)
+    types::Vector{DataType}     # Julia types of columns
+    rows::Int                   # number of rows in the dataset
+    cols::Int                   # number of columns in a dataset
+    function Schema(header::Vector,types::Vector{DataType},rows::Integer=0)
         length(header) == length(types) || throw(ArgumentError("length(header): $(length(header)) must == length(types): $(length(types))"))
         cols = length(header)
         header = UTF8String[utf8(x) for x in header]
@@ -48,96 +130,91 @@ type Schema
     end
 end
 
-Schema(types::Vector{DataType},rows::Integer=0,cols::Integer=0) = Schema(UTF8String["Column$i" for i = 1:length(types)],types,rows,cols)
-const EMPTYSCHEMA = Schema(UTF8String[],DataType[],0,0)
+Schema(types::Vector{DataType},rows::Integer=0) = Schema(UTF8String["Column$i" for i = 1:length(types)],types,rows)
+const EMPTYSCHEMA = Schema(UTF8String[],DataType[],0)
 Schema() = EMPTYSCHEMA
 
 header(sch::Schema) = sch.header
 types(sch::Schema) = sch.types
 Base.size(sch::Schema) = (sch.rows,sch.cols)
-Base.size(sch::Schema,i::Int) = i == 1 ? sch.rows : i == 2 ? sch.cols : 0
+Base.size(sch::Schema,i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
+importall Base.Operators
 ==(s1::Schema,s2::Schema) = header(s1) == header(s2) && types(s1) == types(s2) && size(s1) == size(s2)
 
-export DataTable
-type DataTable <: IOSource
-    schema::Schema
-    index::Vector{Int}
-    ints::Vector{NullableVector{Int}}
-    floats::Vector{NullableVector{Float64}}
-    ptrstrings::Vector{NullableVector{PointerString}}
-    strings::Vector{NullableVector{UTF8String}}
-    dates::Vector{NullableVector{Date}}
-    datetimes::Vector{NullableVector{DateTime}}
-    any::Vector{NullableVector{Any}}
-    other::Any # sometimes you just need to keep a reference around...
+const MAX_COLUMN_WIDTH = 100
+function Base.show(io::IO, schema::Schema)
+    println(io, "$(schema.rows)x$(schema.cols) Data.Schema:")
+    max_col_len = min(MAX_COLUMN_WIDTH,maximum([length(col) for col in header(schema)]))
+    for (nam, typ) in zip(header(schema),types(schema))
+        println(io, length(nam) > MAX_COLUMN_WIDTH ? string(nam[1:chr2ind(nam,MAX_COLUMN_WIDTH-3)],"...") : lpad(nam, max_col_len, ' '), ", ", typ)
+    end
 end
+const MAX_NUM_OF_COLS_TO_PRINT = 10
+function Base.showcompact(io::IO, schema::Schema)
+    nms = header(schema)
+    typs = types(schema)
+    cols = size(schema,2)
+    println(io, "$(schema.rows)x$(schema.cols) Data.Schema:")
+    max_col_lens = [min(div(MAX_COLUMN_WIDTH,2),length(nm)) for nm in nms]
+    max_col_lens = [max(max_col_lens[i],length(string(typs[i])))+1 for i = 1:cols]
+    upper = min(MAX_NUM_OF_COLS_TO_PRINT,cols)
+    cant_print_all = MAX_NUM_OF_COLS_TO_PRINT < cols
+    for i = 1:upper
+        nm = nms[i]
+        print(io, length(nm) > max_col_lens[i] ? string(nm[1:chr2ind(nm,max_col_lens[i]-3)],"...") : lpad(nm, max_col_lens[i], ' '), ifelse(i == upper, ifelse(cant_print_all," ...\n","\n"), ","))
+    end
+    for i = 1:upper
+        print(io, lpad(string(typs[i]), max_col_lens[i], ' '), ifelse(i == upper, ifelse(cant_print_all," ...\n","\n"), ","))
+    end
+end
+
+"Returns the `Data.Schema` for `io`"
+schema(io::SourceOrSink) = io.schema # by default, we assume the `Source`/`Sink` stores the schema directly
+"Returns the header/column names (if any) associated with a specific `Source` or `Sink`"
+header(io::SourceOrSink) = header(schema(io))
+"Returns the column types associated with a specific `Source` or `Sink`"
+types(io::SourceOrSink) = types(schema(io))
+"Returns the (# of rows,# of columns) associated with a specific `Source` or `Sink`"
+Base.size(io::Source) = size(schema(io))
+
+"""
+a generic `Source` type that fulfills the DataStreams interface
+wraps any kind of Julia structure `T`; by default `T` = Vector{NullableVector}
+"""
+type Table{T} <: Source
+    schema::Schema
+    data::T
+    other::Any # for other metadata, references, etc.
+end
+
+using NullableArrays
 
 # Constructors
-function DataTable(schema::Schema,other=0)
-    # allocate data
+function Table(schema::Schema,other=0)
     rows, cols = size(schema)
-    ints = NullableVector{Int}[]
-    floats = NullableVector{Float64}[]
-    ptrstrings = NullableVector{PointerString}[]
-    strings = NullableVector{UTF8String}[]
-    dates = NullableVector{Date}[]
-    datetimes = NullableVector{DateTime}[]
-    any = NullableVector{Any}[]
-    index = Array(Int,cols)
-    for col = 1:cols
-        T = schema.types[col]
-        if T == Int
-            push!(ints,NullableArray(T, rows))
-            index[col] = length(ints)
-        elseif T == Float64
-            push!(floats,NullableArray(T, rows))
-            index[col] = length(floats)
-        elseif T == PointerString
-            push!(ptrstrings,NullableArray(T, rows))
-            index[col] = length(ptrstrings)
-        elseif T <: AbstractString
-            push!(strings,NullableArray(UTF8String, rows))
-            index[col] = length(strings)
-        elseif T == Date
-            push!(dates,NullableArray(T, rows))
-            index[col] = length(dates)
-        elseif T == DateTime
-            push!(datetimes,NullableArray(T, rows))
-            index[col] = length(datetimes)
-        else
-            push!(any,NullableArray(T, rows))
-            index[col] = length(any)
-        end
-    end
-    return DataTable(schema,index,ints,floats,ptrstrings,strings,dates,datetimes,any,other)
+    return Table(schema,NullableVector[NullableArray(T, rows) for T in types(schema)],other)
 end
 
-DataTable(types::Vector{DataType},rows::Int,other=0) = DataTable(Schema(types,rows),other)
-DataTable(source::IOSource) = DataTable(schema(source))
+Table(types::Vector{DataType},rows::Integer=0,other=0) = Table(Schema(types,rows),other)
+Table(source::Source) = Table(schema(source))
 
 # Interface
-
 # column access
-export column
-function column(dt::DataTable, j, T)
-    (0 < j < length(dt.index)+1) || throw(ArgumentError("column index $i out of range"))
+function column(dt::Table, j, T)
+    (0 < j < dt.schema.cols+1) || throw(ArgumentError("column index $i out of range"))
     return unsafe_column(dt, j, T)
 end
-@inline unsafe_column(dt::DataTable, j, ::Type{Int64}) = (@inbounds col = dt.ints[dt.index[j]]; return col)
-@inline unsafe_column(dt::DataTable, j, ::Type{Float64}) = (@inbounds col = dt.floats[dt.index[j]]; return col)
-@inline unsafe_column(dt::DataTable, j, ::Type{PointerString}) = (@inbounds col = dt.ptrstrings[dt.index[j]]; return col)
-@inline unsafe_column{T<:AbstractString}(dt::DataTable, j, ::Type{T}) = (@inbounds col = dt.strings[dt.index[j]]; return col)
-@inline unsafe_column(dt::DataTable, j, ::Type{Date}) = (@inbounds col = dt.dates[dt.index[j]]; return col)
-@inline unsafe_column(dt::DataTable, j, ::Type{DateTime}) = (@inbounds col = dt.datetimes[dt.index[j]]; return col)
-@inline unsafe_column(dt::DataTable, j, T) = (@inbounds col = dt.any[dt.index[j]]; return col)
+@inline unsafe_column{T}(dt::Table, j, ::Type{T}) = (@inbounds col = dt.data[j]::NullableVector{T}; return col)
 
-# cell indexing
-function Base.getindex(dt::DataTable, i, j)
+function Base.getindex(dt::Table, i, j)
     col = column(dt, j, types(dt)[j])
     return col[i]
 end
+# convert to DataFrame
+# DataFrames.DataFrame(dt::Table) = DataFrame(dt.data,Symbol[symbol(x) for x in header(dt)])
 
-end # module
+end # module Data
+end # module DataStreams
 
 #TODO
- # define show for Schema, DataStream
+ # define show for Table
