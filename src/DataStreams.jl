@@ -40,6 +40,7 @@ Base.endof(x::PointerString) = x.len
 Base.string(x::PointerString) = x == NULLSTRING ? "" : "$(bytestring(x.ptr,x.len))"
 Base.convert(::Type{ASCIIString}, x::PointerString) = convert(ASCIIString, string(x))
 Base.convert(::Type{UTF8String}, x::PointerString) = convert(UTF8String, string(x))
+Base.convert(::Type{PointerString}, x::Union{ASCIIString,UTF8String}) = PointerString(pointer(x.data),sizeof(x))
 
 """
 A `Data.Source` type holds data that can be read/queried/parsed/viewed/streamed; i.e. an "ultimate data source"
@@ -144,9 +145,13 @@ importall Base.Operators
 const MAX_COLUMN_WIDTH = 100
 function Base.show(io::IO, schema::Schema)
     println(io, "$(schema.rows)x$(schema.cols) Data.Schema:")
-    max_col_len = min(MAX_COLUMN_WIDTH,maximum([length(col) for col in header(schema)]))
-    for (nam, typ) in zip(header(schema),types(schema))
-        println(io, length(nam) > MAX_COLUMN_WIDTH ? string(nam[1:chr2ind(nam,MAX_COLUMN_WIDTH-3)],"...") : lpad(nam, max_col_len, ' '), ", ", typ)
+    if schema.cols <= 0
+        println(io)
+    else
+        max_col_len = min(MAX_COLUMN_WIDTH,maximum([length(col) for col in header(schema)]))
+        for (nam, typ) in zip(header(schema),types(schema))
+            println(io, length(nam) > MAX_COLUMN_WIDTH ? string(nam[1:chr2ind(nam,MAX_COLUMN_WIDTH-3)],"...") : lpad(nam, max_col_len, ' '), ", ", typ)
+        end
     end
 end
 const MAX_NUM_OF_COLS_TO_PRINT = 10
@@ -197,6 +202,13 @@ end
 
 Table(types::Vector{DataType},rows::Integer=0,other=0) = Table(Schema(types,rows),other)
 Table(source::Source) = Table(schema(source))
+function Table{T}(A::AbstractArray{T,2},header=UTF8String[],other=0)
+    rows, cols = size(A)
+    types = DataType[typeof(A[1,col]) for col = 1:cols]
+    data = NullableVector[convert(NullableArray{types[col],1},NullableArray(A[:,col])) for col = 1:cols]
+    header = isempty(header) ? UTF8String["Column$i" for i = 1:cols] : header
+    return Table(Schema(header,types,rows),data,other)
+end
 
 # Interface
 # column access
@@ -210,11 +222,13 @@ function Base.getindex(dt::Table, i, j)
     col = column(dt, j, types(dt)[j])
     return col[i]
 end
-# convert to DataFrame
-# DataFrames.DataFrame(dt::Table) = DataFrame(dt.data,Symbol[symbol(x) for x in header(dt)])
 
 end # module Data
 end # module DataStreams
 
+# convert to DataFrame
+if isdefined(:DataFrames)
+    DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any},dt.data),Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
+end
 #TODO
  # define show for Table
