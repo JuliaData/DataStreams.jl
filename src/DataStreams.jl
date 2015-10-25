@@ -68,6 +68,8 @@ abstract Source
 
 function reset!
 end
+function isdone
+end
 # TODO: flesh out the "fetching"/"reading"/"ingesting" interface for `Source`s
  # getting results: getrow(::Source) => Any[], getcol(::Source) => T[], getfield(::Source) => T; getrows, getcols
  # iterating through results: eachrow(::Source) => Any[], eachcol(::Source) => T[], eachfield(::Source) => T
@@ -199,6 +201,13 @@ type Table{T} <: Source
     other::Any # for other metadata, references, etc.
 end
 
+function Base.show{T}(io::IO, x::Table{T})
+    eltyp = T == Vector{NullableVector} ? "" : "{$T}"
+    println(io, "Data.Table$eltyp:")
+    showcompact(io, x.schema)
+    show(io, x.data)
+end
+
 using NullableArrays
 Base.string(x::NullableVector{Data.PointerString}) = NullableArray(UTF8String[x for x in x.values], x.isnull)
 
@@ -222,8 +231,6 @@ function Table{T}(A::AbstractArray{T,2},header=UTF8String[],other=0)
     header = isempty(header) ? UTF8String["Column$i" for i = 1:cols] : header
     return Table(Schema(header,types,rows),data,other)
 end
-#TODO
- # define show for Table
 
 # Interface
 # column access
