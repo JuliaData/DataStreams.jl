@@ -28,20 +28,32 @@ Allows for extremely efficient string parsing/movement in some cases between fil
 ***Please note that no original reference is kept to the parent string/memory, so `PointerString`s become unsafe
 once the parent object goes out of scope (i.e. loses a reference to it)***
 """
-immutable PointerString <: AbstractString
-    ptr::Ptr{UInt8}
+immutable PointerString{T} <: AbstractString
+    ptr::Ptr{T}
     len::Int
 end
 
-const NULLSTRING = PointerString(C_NULL,0)
-Base.show(io::IO, ::Type{PointerString}) = print(io,"PointerString")
+const NULLSTRING = PointerString(Ptr{UInt8}(0),0)
+const NULLSTRING16 = PointerString(Ptr{UInt16}(0),0)
+const NULLSTRING32 = PointerString(Ptr{UInt32}(0),0)
+Base.show{T}(io::IO, ::Type{PointerString{T}}) = print(io,"PointerString{$T}")
 Base.show(io::IO, x::PointerString) = print(io,x == NULLSTRING ? "PointerString(\"\")" : "PointerString(\"$(bytestring(x.ptr,x.len))\")")
+Base.show(io::IO, x::PointerString{UInt16}) = print(io,x == NULLSTRING16 ? "PointerString(\"\")" : "PointerString(\"$(utf16(x.ptr,x.len))\")")
+Base.show(io::IO, x::PointerString{UInt32}) = print(io,x == NULLSTRING32 ? "PointerString(\"\")" : "PointerString(\"$(utf32(x.ptr,x.len))\")")
 Base.showcompact(io::IO, x::PointerString) = print(io,x == NULLSTRING ? "\"\"" : "\"$(bytestring(x.ptr,x.len))\"")
+Base.showcompact(io::IO, x::PointerString{UInt16}) = print(io,x == NULLSTRING16 ? "\"\"" : "\"$(utf16(x.ptr,x.len))\"")
+Base.showcompact(io::IO, x::PointerString{UInt32}) = print(io,x == NULLSTRING32 ? "\"\"" : "\"$(utf32(x.ptr,x.len))\"")
 Base.endof(x::PointerString) = x.len
 Base.string(x::PointerString) = x == NULLSTRING ? "" : bytestring(x.ptr,x.len)
+Base.string(x::PointerString{UInt16}) = x == NULLSTRING16 ? utf16("") : utf16(x.ptr,x.len)
+Base.string(x::PointerString{UInt32}) = x == NULLSTRING32 ? utf32("") : utf32(x.ptr,x.len)
 Base.convert(::Type{ASCIIString}, x::PointerString) = convert(ASCIIString, string(x))
 Base.convert(::Type{UTF8String}, x::PointerString) = convert(UTF8String, string(x))
-Base.convert(::Type{PointerString}, x::Union{ASCIIString,UTF8String}) = PointerString(pointer(x.data),sizeof(x))
+Base.convert(::Type{UTF16String}, x::PointerString) = convert(UTF16String, string(x))
+Base.convert(::Type{UTF32String}, x::PointerString) = convert(UTF32String, string(x))
+Base.convert(::Type{PointerString{UInt8}}, x::Union{ASCIIString,UTF8String}) = PointerString(pointer(x.data),sizeof(x))
+Base.convert(::Type{PointerString{UInt16}}, x::UTF16String) = PointerString(pointer(x.data),sizeof(x))
+Base.convert(::Type{PointerString{UInt32}}, x::UTF32String) = PointerString(pointer(x.data),sizeof(x))
 
 """
 A `Data.Source` type holds data that can be read/queried/parsed/viewed/streamed; i.e. a "true data source"
@@ -132,16 +144,17 @@ type Schema
     types::Vector{DataType}     # Julia types of columns
     rows::Int                   # number of rows in the dataset
     cols::Int                   # number of columns in a dataset
-    function Schema(header::Vector,types::Vector{DataType},rows::Integer=0)
+    metadata::Dict{Any,Any}     # for any other metadata we'd like to keep around
+    function Schema(header::Vector,types::Vector{DataType},rows::Integer=0,metadata::Dict=Dict())
         length(header) == length(types) || throw(ArgumentError("length(header): $(length(header)) must == length(types): $(length(types))"))
         cols = length(header)
         header = UTF8String[utf8(x) for x in header]
-        return new(header,types,rows,cols)
+        return new(header,types,rows,cols,metadata)
     end
 end
 
-Schema(types::Vector{DataType},rows::Integer=0) = Schema(UTF8String["Column$i" for i = 1:length(types)],types,rows)
-const EMPTYSCHEMA = Schema(UTF8String[],DataType[],0)
+Schema(types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(UTF8String["Column$i" for i = 1:length(types)],types,rows,meta)
+const EMPTYSCHEMA = Schema(UTF8String[],DataType[],0,Dict())
 Schema() = EMPTYSCHEMA
 
 header(sch::Schema) = sch.header
@@ -251,4 +264,11 @@ end # module DataStreams
 # convert Data.Table to DataFrame
 if isdefined(:DataFrames)
     DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any},dt.data),Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
+    DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any},DataArray[DataArray(x.values,x.isnull) for x in dt.data]),Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
+    function DataStreams.Data.Table(df::DataFrames.DataFrame)
+        rows, cols = size(df)
+        schema = DataStreams.Data.Schema(DataType[eltype(i) for i in df.columns],rows)
+        data = NullableArrays.NullableVector[NullableArrays.NullableArray(x.data,convert(Vector{Bool},x.na)) for x in df.columns]
+        return DataStreams.Data.Table(schema,data,0)
+    end
 end
