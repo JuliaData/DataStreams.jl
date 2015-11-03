@@ -203,6 +203,7 @@ header(io::SourceOrSink) = header(schema(io))
 types(io::SourceOrSink) = types(schema(io))
 "Returns the (# of rows,# of columns) associated with a specific `Source` or `Sink`"
 Base.size(io::Source) = size(schema(io))
+Base.size(io::Source,i) = size(schema(io),i)
 
 """
 a generic `Source` type that fulfills the DataStreams interface
