@@ -262,13 +262,12 @@ end
 end # module Data
 end # module DataStreams
 
-# convert Data.Table to DataFrame
+# Define conversions between Data.Table and DataFrame is the latter is defined
 if isdefined(:DataFrames)
-    DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any},dt.data),Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
     DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any},DataArray[DataArray(x.values,x.isnull) for x in dt.data]),Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
     function DataStreams.Data.Table(df::DataFrames.DataFrame)
         rows, cols = size(df)
-        schema = DataStreams.Data.Schema(DataType[eltype(i) for i in df.columns],rows)
+        schema = DataStreams.Data.Schema(UTF8String[string(c) for c in names(df)],DataType[eltype(i) for i in df.columns],rows)
         data = NullableArrays.NullableVector[NullableArrays.NullableArray(x.data,convert(Vector{Bool},x.na)) for x in df.columns]
         return DataStreams.Data.Table(schema,data,0)
     end
