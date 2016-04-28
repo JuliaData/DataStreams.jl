@@ -153,6 +153,7 @@ type Schema
     end
 end
 
+Schema(header,types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(UTF8String[i for i in header],types,rows,meta)
 Schema(types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(UTF8String["Column$i" for i = 1:length(types)],types,rows,meta)
 const EMPTYSCHEMA = Schema(UTF8String[],DataType[],0,Dict())
 Schema() = EMPTYSCHEMA
@@ -236,6 +237,7 @@ function Data.stream!(source::Data.Source, ::Type{Data.Table})
     return Data.stream!(source,sink)
 end
 
+Table(header::Vector,types::Vector{DataType},rows::Integer=0,other=0) = Table(Schema(header,types,rows),other)
 Table(types::Vector{DataType},rows::Integer=0,other=0) = Table(Schema(types,rows),other)
 Table(source::Source) = Table(schema(source))
 function Table{T}(A::AbstractArray{T,2},header=UTF8String[],other=0)
