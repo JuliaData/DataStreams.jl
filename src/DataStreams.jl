@@ -47,10 +47,7 @@ Base.endof(x::PointerString) = x.len
 Base.string(x::PointerString) = x == NULLSTRING ? "" : bytestring(x.ptr,x.len)
 Base.string(x::PointerString{UInt16}) = x == NULLSTRING16 ? utf16("") : utf16(x.ptr,x.len)
 Base.string(x::PointerString{UInt32}) = x == NULLSTRING32 ? utf32("") : utf32(x.ptr,x.len)
-Base.convert(::Type{ASCIIString}, x::PointerString) = convert(ASCIIString, string(x))
-Base.convert(::Type{UTF8String}, x::PointerString) = convert(UTF8String, string(x))
-Base.convert(::Type{UTF16String}, x::PointerString) = convert(UTF16String, string(x))
-Base.convert(::Type{UTF32String}, x::PointerString) = convert(UTF32String, string(x))
+Base.convert{T<:AbstractString}(::Type{T}, x::PointerString) = convert(T, string(x))
 Base.convert(::Type{PointerString{UInt8}}, x::Union{ASCIIString,UTF8String}) = PointerString(pointer(x.data),sizeof(x))
 Base.convert(::Type{PointerString{UInt16}}, x::UTF16String) = PointerString(pointer(x.data),sizeof(x))
 Base.convert(::Type{PointerString{UInt32}}, x::UTF32String) = PointerString(pointer(x.data),sizeof(x))
@@ -264,7 +261,7 @@ end
 end # module Data
 end # module DataStreams
 
-# Define conversions between Data.Table and DataFrame is the latter is defined
+# Define conversions between Data.Table and DataFrame if the latter is defined
 if isdefined(:DataFrames)
     DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any},DataArray[DataArray(x.values,x.isnull) for x in dt.data]),Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
     function DataStreams.Data.Table(df::DataFrames.DataFrame)
