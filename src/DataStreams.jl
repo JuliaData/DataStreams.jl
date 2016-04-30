@@ -220,7 +220,13 @@ function Base.show{T}(io::IO, x::Table{T})
     eltyp = T == Vector{NullableVector} ? "" : "{$T}"
     println(io, "Data.Table$eltyp:")
     showcompact(io, x.schema)
-    show(io, x.data)
+    println(); println(io, "\tColumn Data:")
+    types = Data.types(x)
+    for col = 1:min(MAX_NUM_OF_COLS_TO_PRINT,size(x,2))
+        print(io, "\t"); showcompact(io, Data.column(x, col, types[col]).values)
+        println()
+    end
+    MAX_NUM_OF_COLS_TO_PRINT < size(x,2) && println(io, "\t...")
 end
 
 using NullableArrays
