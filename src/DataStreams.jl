@@ -1,16 +1,18 @@
 """
-The `DataStreams.jl` packages defines a data processing framework based on Sources, Sinks, and the `Data.stream!` function.
+The `DataStreams.jl` package defines a data processing framework based on Sources, Sinks, and the `Data.stream!` function.
 
 `DataStreams` defines the common infrastructure leveraged by individual packages to create systems of various
 data sources and sinks that talk to each other in a unified, consistent way.
 
 The workflow enabled by the `DataStreams` framework involves:
+
  * constructing new `Source` types to allow streaming data from files, databases, etc.
  * `Data.stream!` those datasets to newly created or existing `Sink` types
  * convert `Sink` types that have received data into new `Source` types
  * continue to `Data.stream!` from `Source`s to `Sink`s
 
 The typical approach for a new package to "satisfy" the DataStreams interface is to:
+
  * Define a `Source` type that wraps an "true data source" (i.e. a file, database table/query, etc.) and fulfills the `Source` interface (see `?Data.Source`)
  * Define a `Sink` type that can create or write data to an "true data source" and fulfills the `Sink` interface (see `?Data.Sink`)
  * Define appropriate `Data.stream!(::Source, ::Sink)` methods as needed between various combinations of Sources and Sinks;
@@ -19,14 +21,16 @@ The typical approach for a new package to "satisfy" the DataStreams interface is
 module DataStreams
 
 export Data, PointerString
+
 module Data
 
 export PointerString
 """
 A custom "weakref" string type that only stores a Ptr{UInt8} and len::Int.
 Allows for extremely efficient string parsing/movement in some cases between files and databases.
-***Please note that no original reference is kept to the parent string/memory, so `PointerString`s become unsafe
-once the parent object goes out of scope (i.e. loses a reference to it)***
+
+**Please note that no original reference is kept to the parent string/memory, so `PointerString`s become unsafe
+once the parent object goes out of scope (i.e. loses a reference to it)**
 """
 immutable PointerString{T} <: AbstractString
     ptr::Ptr{T}
@@ -58,19 +62,23 @@ Base.convert(::Type{PointerString{UInt32}}, x::UTF32String) = PointerString(poin
 """
 A `Data.Source` type holds data that can be read/queried/parsed/viewed/streamed; i.e. a "true data source"
 To clarify, there are two distinct types of "source":
+
   1) the "true data source", which would be the file, database, API, structure, etc; i.e. the actual data
   2) the `Data.Source` julia object that wraps the "true source" and provides the `DataStreams` interface
 
 `Source` types have two different types of constructors:
+
   1) "independent constructors" that wrap "true data sources"
   2) "sink constructors" where a `Data.Sink` object that has received data is turned into a new `Source` (useful for chaining data processing tasks)
 
 `Source`s also have a, currently implicit, notion of state:
+
   * `BEGINNING`: a `Source` is in this state immediately after being constructed and is ready to be used; i.e. ready to read/parse/query/stream data from it
   * `READING`: the ingestion of data from this `Source` has started and has not finished yet
   * `DONE`: the ingestion process has exhausted all data expected from this `Source`
 
 The `Data.Source` interface includes the following:
+
  * `Data.schema(::Data.Source) => Data.Schema`; typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required
  * `Data.reset!(::Data.Source)`; used to reset a `Source` type from `READING` or `DONE` to the `BEGINNING` state, ready to be read from again
  * `eof(::Data.Source)`; indicates whether the `Source` type is in the `DONE` state; i.e. all data has been exhausted from this source
@@ -103,16 +111,19 @@ end
 A `Data.Sink` type represents a data destination; i.e. an "true data source" such as a database, file, API endpoint, etc.
 
 There are two broad types of `Sink`s:
+
   1) "new sinks": an independent `Sink` constructor creates a *new* "true data source" that can be streamed to
   2) "existing sinks": the `Sink` wraps an already existing "true data source" (or `Source` object that wraps an "true data source").
-    Upon construction of these Sinks, there is no new creation of "true data source"s; the "ulitmate data source" is simply wrapped to replace or append to
+    Upon construction of these `Sink`s, there is no new creation of "true data source"s; the "ulitmate data source" is simply wrapped to replace or append to
 
 `Sink`s also have notions of state:
+
   * `BEGINNING`: the `Sink` is freshly constructed and ready to stream data to; this includes initial metadata like column headers
   * `WRITING`: data has been streamed to the `Sink`, but is still open to receive more data
   * `DONE`: the `Sink` has been closed and can no longer receive data
 
 The `Data.Sink` interface includes the following:
+
  * `Data.schema(::Data.Sink) => Data.Schema`; typically the `Sink` type will store the `Data.Schema` directly, but this isn't strictly required
 """
 abstract Sink
@@ -135,6 +146,7 @@ end
 """
 A `Data.Schema` describes a tabular dataset (i.e. a set of optionally named, typed columns with records as rows)
 Access to `Data.Schema` fields includes:
+
  * `Data.header(schema)` to return the header/column names in a `Data.Schema`
  * `Data.types(schema)` to return the column types in a `Data.Schema`
  * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`
@@ -207,7 +219,7 @@ Base.size(io::Source) = size(schema(io))
 Base.size(io::Source,i) = size(schema(io),i)
 
 """
-a generic `Source` type that fulfills the DataStreams interface
+A generic `Source` type that fulfills the DataStreams interface
 wraps any kind of Julia structure `T`; by default `T` = Vector{NullableVector}
 """
 type Table{T} <: Source
