@@ -39,27 +39,11 @@ immutable PointerString{T} <: AbstractString
     len::Int
 end
 
-const NULLSTRING = PointerString(Ptr{UInt8}(0),0)
-const NULLSTRING16 = PointerString(Ptr{UInt16}(0),0)
-const NULLSTRING32 = PointerString(Ptr{UInt32}(0),0)
-Base.show{T}(io::IO, ::Type{PointerString{T}}) = print(io,"PointerString{$T}")
-Base.show(io::IO, x::PointerString) = print(io,x == NULLSTRING ? "PointerString(\"\")" : "PointerString(\"$(String(x.ptr,x.len))\")")
-Base.show(io::IO, x::PointerString{UInt16}) = print(io,x == NULLSTRING16 ? "PointerString(\"\")" : "PointerString(\"$(utf16(x.ptr,x.len))\")")
-Base.show(io::IO, x::PointerString{UInt32}) = print(io,x == NULLSTRING32 ? "PointerString(\"\")" : "PointerString(\"$(utf32(x.ptr,x.len))\")")
-Base.showcompact(io::IO, x::PointerString) = print(io,x == NULLSTRING ? "\"\"" : "\"$(String(x.ptr,x.len))\"")
-Base.showcompact(io::IO, x::PointerString{UInt16}) = print(io,x == NULLSTRING16 ? "\"\"" : "\"$(utf16(x.ptr,x.len))\"")
-Base.showcompact(io::IO, x::PointerString{UInt32}) = print(io,x == NULLSTRING32 ? "\"\"" : "\"$(utf32(x.ptr,x.len))\"")
+const NULLSTRING = PointerString(Ptr{UInt8}(0), 0)
+const NULLSTRING16 = PointerString(Ptr{UInt16}(0), 0)
+const NULLSTRING32 = PointerString(Ptr{UInt32}(0), 0)
 Base.endof(x::PointerString) = x.len
 Base.length(x::PointerString) = x.len
-Base.string(x::PointerString) = x == NULLSTRING ? "" : Compat.UTF8String(x.ptr,x.len)
-Base.string(x::PointerString{UInt16}) = x == NULLSTRING16 ? utf16("") : utf16(x.ptr,x.len)
-Base.string(x::PointerString{UInt32}) = x == NULLSTRING32 ? utf32("") : utf32(x.ptr,x.len)
-Base.convert(::Type{Compat.UTF8String}, x::PointerString) = convert(Compat.UTF8String, string(x))
-Base.convert(::Type{UTF16String}, x::PointerString) = convert(UTF16String, string(x))
-Base.convert(::Type{UTF32String}, x::PointerString) = convert(UTF32String, string(x))
-Base.convert(::Type{PointerString{UInt8}}, x::Compat.UTF8String) = PointerString(pointer(x.data),sizeof(x))
-Base.convert(::Type{PointerString{UInt16}}, x::UTF16String) = PointerString(pointer(x.data),sizeof(x))
-Base.convert(::Type{PointerString{UInt32}}, x::UTF32String) = PointerString(pointer(x.data),sizeof(x))
 
 """
 A `Data.Source` type holds data that can be read/queried/parsed/viewed/streamed; i.e. a "true data source"
@@ -129,20 +113,20 @@ The `Data.Sink` interface includes the following:
  * `Data.schema(::Data.Sink) => Data.Schema`; typically the `Sink` type will store the `Data.Schema` directly, but this isn't strictly required
 """
 abstract Sink
-typealias SourceOrSink Union{Source,Sink}
+typealias SourceOrSink Union{Source, Sink}
 
 """
 `Data.stream!(::Data.Source, ::Data.Sink)` starts transfering data from a newly constructed `Source` type to a newly constructed `Sink` type.
 Data transfer typically continues until `eof(source) == true`, i.e. the `Source` is exhausted, at which point the `Sink` is closed and may
 no longer receive data. See individual `Data.stream!` methods for more details on specific `Source`/`Sink` combinations.
 """
-function stream!#(::Source,::Sink)
+function stream!#(::Source, ::Sink)
 end
 
 # creates a new Data.Sink of type `T` according to `source` schema and streams data to it
 function Data.stream!{T<:Data.Sink}(source::Data.Source, ::Type{T})
     sink = T(Data.schema(source))
-    return Data.stream!(source,sink)
+    return Data.stream!(source, sink)
 end
 
 """
@@ -158,57 +142,26 @@ type Schema
     types::Vector{DataType}     # Julia types of columns
     rows::Int                   # number of rows in the dataset
     cols::Int                   # number of columns in a dataset
-    metadata::Dict{Any,Any}     # for any other metadata we'd like to keep around
-    function Schema(header::Vector,types::Vector{DataType},rows::Integer=0,metadata::Dict=Dict())
-        length(header) == length(types) || throw(ArgumentError("length(header): $(length(header)) must == length(types): $(length(types))"))
+    metadata::Dict{Any, Any}     # for any other metadata we'd like to keep around (not used for '==' operation)
+    function Schema(header::Vector, types::Vector{DataType}, rows::Integer=0, metadata::Dict=Dict())
         cols = length(header)
-        header = Compat.UTF8String[x for x in header]
-        return new(header,types,rows,cols,metadata)
+        cols != length(types) && throw(ArgumentError("length(header): $(length(header)) must == length(types): $(length(types))"))
+        header = Compat.UTF8String[string(x) for x in header]
+        return new(header, types, rows, cols, metadata)
     end
 end
 
-Schema(header,types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(Compat.UTF8String[i for i in header],types,rows,meta)
-Schema(types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(Compat.UTF8String["Column$i" for i = 1:length(types)],types,rows,meta)
-const EMPTYSCHEMA = Schema(Compat.UTF8String[],DataType[],0,Dict())
+Schema(header, types::Vector{DataType}, rows::Integer=0, meta::Dict=Dict()) = Schema(Compat.UTF8String[i for i in header], types, rows, meta)
+Schema(types::Vector{DataType}, rows::Integer=0, meta::Dict=Dict()) = Schema(Compat.UTF8String["Column$i" for i = 1:length(types)], types, rows, meta)
+const EMPTYSCHEMA = Schema(Compat.UTF8String[], DataType[], 0, Dict())
 Schema() = EMPTYSCHEMA
 
 header(sch::Schema) = sch.header
 types(sch::Schema) = sch.types
-Base.size(sch::Schema) = (sch.rows,sch.cols)
-Base.size(sch::Schema,i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
+Base.size(sch::Schema) = (sch.rows, sch.cols)
+Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
 import Base.==
-==(s1::Schema,s2::Schema) = header(s1) == header(s2) && types(s1) == types(s2) && size(s1) == size(s2)
-
-const MAX_COLUMN_WIDTH = 100
-function Base.show(io::IO, schema::Schema)
-    println(io, "$(schema.rows)x$(schema.cols) Data.Schema:")
-    if schema.cols <= 0
-        println(io)
-    else
-        max_col_len = min(MAX_COLUMN_WIDTH,maximum([length(col) for col in header(schema)]))
-        for (nam, typ) in zip(header(schema),types(schema))
-            println(io, length(nam) > MAX_COLUMN_WIDTH ? string(nam[1:chr2ind(nam,MAX_COLUMN_WIDTH-3)],"...") : lpad(nam, max_col_len, ' '), ", ", typ)
-        end
-    end
-end
-const MAX_NUM_OF_COLS_TO_PRINT = 10
-function Base.showcompact(io::IO, schema::Schema)
-    nms = header(schema)
-    typs = types(schema)
-    cols = size(schema,2)
-    println(io, "$(schema.rows)x$(schema.cols) Data.Schema:")
-    max_col_lens = [min(div(MAX_COLUMN_WIDTH,2),length(nm)) for nm in nms]
-    max_col_lens = [max(max_col_lens[i],length(string(typs[i])))+1 for i = 1:cols]
-    upper = min(MAX_NUM_OF_COLS_TO_PRINT,cols)
-    cant_print_all = MAX_NUM_OF_COLS_TO_PRINT < cols
-    for i = 1:upper
-        nm = nms[i]
-        print(io, length(nm) > max_col_lens[i] ? string(nm[1:chr2ind(nm,max_col_lens[i]-3)],"...") : lpad(nm, max_col_lens[i], ' '), ifelse(i == upper, ifelse(cant_print_all," ...\n","\n"), ","))
-    end
-    for i = 1:upper
-        print(io, lpad(string(typs[i]), max_col_lens[i], ' '), ifelse(i == upper, ifelse(cant_print_all," ...\n","\n"), ","))
-    end
-end
+==(s1::Schema, s2::Schema) = header(s1) == header(s2) && types(s1) == types(s2) && size(s1) == size(s2)
 
 "Returns the `Data.Schema` for `io`"
 schema(io::SourceOrSink) = io.schema # by default, we assume the `Source`/`Sink` stores the schema directly
@@ -218,7 +171,7 @@ header(io::SourceOrSink) = header(schema(io))
 types(io::SourceOrSink) = types(schema(io))
 "Returns the (# of rows,# of columns) associated with a specific `Source` or `Sink`"
 Base.size(io::Source) = size(schema(io))
-Base.size(io::Source,i) = size(schema(io),i)
+Base.size(io::Source, i) = size(schema(io),i)
 
 """
 A generic `Source` type that fulfills the DataStreams interface
@@ -247,30 +200,31 @@ using NullableArrays
 Base.string(x::NullableVector{Data.PointerString}) = NullableArray(Compat.UTF8String[x for x in x.values], x.isnull)
 
 # Constructors
-function Table(schema::Schema,other=0)
+function Table(schema::Schema, other=0)
     rows, cols = size(schema)
-    return Table(schema,NullableVector[NullableArray(T, rows) for T in types(schema)],other)
+    return Table(schema, NullableVector[NullableArray(T, rows) for T in types(schema)], other)
 end
+
 # define our own default Data.stream! method since Data.Table <: Source
 function Data.stream!(source::Data.Source, ::Type{Data.Table})
     sink = Data.Table(Data.schema(source))
-    return Data.stream!(source,sink)
+    return Data.stream!(source, sink)
 end
 
-Table(header::Vector,types::Vector{DataType},rows::Integer=0,other=0) = Table(Schema(header,types,rows),other)
-Table(types::Vector{DataType},rows::Integer=0,other=0) = Table(Schema(types,rows),other)
+Table(header::Vector, types::Vector{DataType}, rows::Integer=0, other=0) = Table(Schema(header, types, rows), other)
+Table(types::Vector{DataType}, rows::Integer=0, other=0) = Table(Schema(types, rows), other)
 Table(source::Source) = Table(schema(source))
-function Table{T}(A::AbstractArray{T,2},header=Compat.UTF8String[],other=0)
+function Table{T}(A::AbstractArray{T,2}, header=Compat.UTF8String[], other=0)
     rows, cols = size(A)
     types = DataType[typeof(A[1,col]) for col = 1:cols]
     data = NullableVector[convert(NullableArray{types[col],1},NullableArray(A[:,col])) for col = 1:cols]
     header = isempty(header) ? Compat.UTF8String["Column$i" for i = 1:cols] : header
-    return Table(Schema(header,types,rows),data,other)
+    return Table(Schema(header, types, rows), data, other)
 end
 
 # Interface
 # column access
-function column(dt::Table, j, T)
+function column(dt::Table, j::Integer, T::DataType)
     (0 < j < dt.schema.cols+1) || throw(ArgumentError("column index $i out of range"))
     return unsafe_column(dt, j, T)
 end
@@ -283,18 +237,20 @@ end
 
 Base.getindex(::Table, i, ::Colon) = throw(ArgumentError("row-level indexing not supported by `Data.Table`. Access columns individually or convert a `DataFrame(dt::Data.Table)` for more involved data manipulation needs."))
 
+include("io.jl")
+
 end # module Data
 end # module DataStreams
 
 using Compat
 
-# Define conversions between Data.Table and DataFrame is the latter is defined
+# Define conversions between Data.Table and DataFrame if the latter is defined
 if isdefined(:DataFrames)
-    DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any},DataArray[DataArray(x.values,x.isnull) for x in dt.data]),Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
+    DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any}, DataArray[DataArray(x.values,x.isnull) for x in dt.data]), Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
     function DataStreams.Data.Table(df::DataFrames.DataFrame)
         rows, cols = size(df)
-        schema = DataStreams.Data.Schema(Compat.UTF8String[string(c) for c in names(df)],DataType[eltype(i) for i in df.columns],rows)
-        data = NullableArrays.NullableVector[NullableArrays.NullableArray(x.data,convert(Vector{Bool},x.na)) for x in df.columns]
-        return DataStreams.Data.Table(schema,data,0)
+        schema = DataStreams.Data.Schema(Compat.UTF8String[string(c) for c in names(df)], DataType[eltype(i) for i in df.columns], rows)
+        data = NullableArrays.NullableVector[NullableArrays.NullableArray(x.data, convert(Vector{Bool},x.na)) for x in df.columns]
+        return DataStreams.Data.Table(schema, data, 0)
     end
 end
