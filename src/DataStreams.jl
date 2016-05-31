@@ -50,13 +50,14 @@ Base.showcompact(io::IO, x::PointerString) = print(io,x == NULLSTRING ? "\"\"" :
 Base.showcompact(io::IO, x::PointerString{UInt16}) = print(io,x == NULLSTRING16 ? "\"\"" : "\"$(utf16(x.ptr,x.len))\"")
 Base.showcompact(io::IO, x::PointerString{UInt32}) = print(io,x == NULLSTRING32 ? "\"\"" : "\"$(utf32(x.ptr,x.len))\"")
 Base.endof(x::PointerString) = x.len
-Base.string(x::PointerString) = x == NULLSTRING ? "" : String(x.ptr,x.len)
+Base.length(x::PointerString) = x.len
+Base.string(x::PointerString) = x == NULLSTRING ? "" : Compat.UTF8String(x.ptr,x.len)
 Base.string(x::PointerString{UInt16}) = x == NULLSTRING16 ? utf16("") : utf16(x.ptr,x.len)
 Base.string(x::PointerString{UInt32}) = x == NULLSTRING32 ? utf32("") : utf32(x.ptr,x.len)
-Base.convert(::Type{String}, x::PointerString) = convert(String, string(x))
+Base.convert(::Type{Compat.UTF8String}, x::PointerString) = convert(Compat.UTF8String, string(x))
 Base.convert(::Type{UTF16String}, x::PointerString) = convert(UTF16String, string(x))
 Base.convert(::Type{UTF32String}, x::PointerString) = convert(UTF32String, string(x))
-Base.convert(::Type{PointerString{UInt8}}, x::Union{String}) = PointerString(pointer(x.data),sizeof(x))
+Base.convert(::Type{PointerString{UInt8}}, x::Compat.UTF8String) = PointerString(pointer(x.data),sizeof(x))
 Base.convert(::Type{PointerString{UInt16}}, x::UTF16String) = PointerString(pointer(x.data),sizeof(x))
 Base.convert(::Type{PointerString{UInt32}}, x::UTF32String) = PointerString(pointer(x.data),sizeof(x))
 
@@ -153,7 +154,7 @@ Access to `Data.Schema` fields includes:
  * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`
 """
 type Schema
-    header::Vector{String}  # column names
+    header::Vector{Compat.UTF8String}  # column names
     types::Vector{DataType}     # Julia types of columns
     rows::Int                   # number of rows in the dataset
     cols::Int                   # number of columns in a dataset
@@ -161,14 +162,14 @@ type Schema
     function Schema(header::Vector,types::Vector{DataType},rows::Integer=0,metadata::Dict=Dict())
         length(header) == length(types) || throw(ArgumentError("length(header): $(length(header)) must == length(types): $(length(types))"))
         cols = length(header)
-        header = String[x for x in header]
+        header = Compat.UTF8String[x for x in header]
         return new(header,types,rows,cols,metadata)
     end
 end
 
-Schema(header,types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(String[i for i in header],types,rows,meta)
-Schema(types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(String["Column$i" for i = 1:length(types)],types,rows,meta)
-const EMPTYSCHEMA = Schema(String[],DataType[],0,Dict())
+Schema(header,types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(Compat.UTF8String[i for i in header],types,rows,meta)
+Schema(types::Vector{DataType},rows::Integer=0,meta::Dict=Dict()) = Schema(Compat.UTF8String["Column$i" for i = 1:length(types)],types,rows,meta)
+const EMPTYSCHEMA = Schema(Compat.UTF8String[],DataType[],0,Dict())
 Schema() = EMPTYSCHEMA
 
 header(sch::Schema) = sch.header
@@ -243,7 +244,7 @@ function Base.show{T}(io::IO, x::Table{T})
 end
 
 using NullableArrays
-Base.string(x::NullableVector{Data.PointerString}) = NullableArray(String[x for x in x.values], x.isnull)
+Base.string(x::NullableVector{Data.PointerString}) = NullableArray(Compat.UTF8String[x for x in x.values], x.isnull)
 
 # Constructors
 function Table(schema::Schema,other=0)
@@ -259,11 +260,11 @@ end
 Table(header::Vector,types::Vector{DataType},rows::Integer=0,other=0) = Table(Schema(header,types,rows),other)
 Table(types::Vector{DataType},rows::Integer=0,other=0) = Table(Schema(types,rows),other)
 Table(source::Source) = Table(schema(source))
-function Table{T}(A::AbstractArray{T,2},header=String[],other=0)
+function Table{T}(A::AbstractArray{T,2},header=Compat.UTF8String[],other=0)
     rows, cols = size(A)
     types = DataType[typeof(A[1,col]) for col = 1:cols]
     data = NullableVector[convert(NullableArray{types[col],1},NullableArray(A[:,col])) for col = 1:cols]
-    header = isempty(header) ? String["Column$i" for i = 1:cols] : header
+    header = isempty(header) ? Compat.UTF8String["Column$i" for i = 1:cols] : header
     return Table(Schema(header,types,rows),data,other)
 end
 
@@ -292,7 +293,7 @@ if isdefined(:DataFrames)
     DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any},DataArray[DataArray(x.values,x.isnull) for x in dt.data]),Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
     function DataStreams.Data.Table(df::DataFrames.DataFrame)
         rows, cols = size(df)
-        schema = DataStreams.Data.Schema(String[string(c) for c in names(df)],DataType[eltype(i) for i in df.columns],rows)
+        schema = DataStreams.Data.Schema(Compat.UTF8String[string(c) for c in names(df)],DataType[eltype(i) for i in df.columns],rows)
         data = NullableArrays.NullableVector[NullableArrays.NullableArray(x.data,convert(Vector{Bool},x.na)) for x in df.columns]
         return DataStreams.Data.Table(schema,data,0)
     end
