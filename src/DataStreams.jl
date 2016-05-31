@@ -44,6 +44,7 @@ const NULLSTRING16 = PointerString(Ptr{UInt16}(0), 0)
 const NULLSTRING32 = PointerString(Ptr{UInt32}(0), 0)
 Base.endof(x::PointerString) = x.len
 Base.length(x::PointerString) = x.len
+Base.next(x::PointerString, i::Int) = (Char(unsafe_load(x.ptr, i)),i+1)
 
 """
 A `Data.Source` type holds data that can be read/queried/parsed/viewed/streamed; i.e. a "true data source"
