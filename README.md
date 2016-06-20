@@ -7,7 +7,7 @@ Linux and OS X: [![Build Status](https://travis-ci.org/JuliaDB/DataStreams.jl.sv
 
 Windows: [![Build Status](https://ci.appveyor.com/api/projects/status/github/JuliaDB/DataStreams.jl?branch=master&svg=true)](https://ci.appveyor.com/project/JuliaDB/datastreams-jl/branch/master)
 
-[![codecov.io](http://codecov.io/github/JuliaDB/DataStreams/coverage.svg?branch=master)](http://codecov.io/github/JuliaDB/DataStreams?branch=master)
+[![codecov.io](http://codecov.io/github/JuliaDB/DataStreams.jl/coverage.svg?branch=master)](http://codecov.io/github/JuliaDB/DataStreams.jl?branch=master)
 
 The `DataStreams.jl` packages defines a data processing framework based on Sources, Sinks, and the `Data.stream!` function.
 
