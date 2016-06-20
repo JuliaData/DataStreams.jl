@@ -20,7 +20,7 @@ print(sch)
 src_tb = Data.Table(sch)
 
 for i = 1:ROWS, j = 1:COLS
-	src_tb.data[j][i] = i * j
+    src_tb.data[j][i] = i * j
 end
 
 print(src_tb)
