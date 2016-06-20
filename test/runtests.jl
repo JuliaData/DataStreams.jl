@@ -1,7 +1,8 @@
-using DataStreams
-using Base.Test
-using Compat
-using NullableArrays
+using Base.Test, DataStreams, DataFrames, NullableArrays
+
+if !isdefined(Core, :String)
+    typealias String UTF8String
+end
 
 ROWS = 2
 COLS = 3
@@ -9,23 +10,11 @@ COLS = 3
 sch = Data.Schema([Int, Int, Int], ROWS)
 data = [ 1 2 ; 10 20 ]
 
-@test Data.header(sch) == Compat.UTF8String["Column1", "Column2", "Column3"]
+@test Data.header(sch) == String["Column1", "Column2", "Column3"]
 @test Data.types(sch) == [Int, Int, Int]
 @test size(sch) == (ROWS, COLS)
 
 @test sch == Data.Schema([Int, Int, Int], ROWS)
-
-print(sch)
-
-src_tb = Data.Table(sch)
-
-for i = 1:ROWS, j = 1:COLS
-	src_tb.data[j][i] = i * j
-end
-
-print(src_tb)
-
-@test get(getindex(src_tb, 2, 3)) == 6
 
 """
 A generic `Sink` type that fulfills the DataStreams interface
@@ -46,9 +35,12 @@ TableSink(s::Data.Source) = TableSink(schema(s))
 
 import DataStreams.Data.stream!
 
-function Data.stream!(src::Data.Table, snk::TableSink)
+function Data.stream!(src::DataFrame, snk::TableSink)
     # TODO: this could be improved considering different source Schema.
-    snk.data = src.data
+    snk.data = src.columns
 end
 
-snk_tb = Data.stream!(src_tb, Type(TableSink))
+src_tb = DataFrame()
+snk = TableSink(sch)
+
+snk_tb = Data.stream!(src_tb, snk)
