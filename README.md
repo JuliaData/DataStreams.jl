@@ -64,31 +64,3 @@ The `Data.Sink` interface includes the following:
  * `Data.reset!(::Data.Sink;append::Bool=false)`; used to reset a `Sink` type from `WRITING` or `DONE` to the `BEGINNING` state, ready to receive data again
  * `Data.isdone(::Data.Sink)`; indicates whether the `Sink` type is in the `DONE` state; i.e. if it can receive any more data
 
-
-#### Helper Types
-
-The `DataStreams` package also provides a few helper types that have proven useful to the greater `DataStreams` ecosystem.
-
-##### Data.Table
-
-The `Data.Table` type is a generic "tabular dataset" type that can fulfill the `Data.Source` and `Data.Sink` interfaces. By default, its inner representation is a `Vector{NullableVector}` (utilizing the [`NullableArrays`](https://github.com/JuliaStats/NullableArrays.jl) pacakage).
-
-This type is meant to be a "bare-bones" interface to a tabular dataset representation and allow packages to read/write with this thin, efficient structure as a standard default while allowing additional data manipulation operations to be handled by more appropriate packages (i.e DataFrames, SQLite, etc.). A non-copying conversion method is provided, for example, between a `Data.Table` and a `DataFrame`, as long as the user calls `using DataFrames` before `using DataStreams` (or any other package that internally calls `using DataStreams`). So a broader workflow for reading/writing data + manipulation might look like:
-
-```julia
-using DataFrames
-using CSV, SQLite, ODBC
-
-data = ODBC.query(dsn, "select * from employee") # stream data from a DB table to a Data.Table
-df = DataFrame(data) # convert Data.Table to a DataFrame without copying the data
-#=
-... various DataFrame manipulations
-=#
-dt = Data.Table(df) # convert DataFrame back to a Data.Table without copying the data
-csv = CSV.Sink("dataframe_output.csv")
-Data.stream!(dt, csv) # stream the data from our Data.Table out to a CSV file
-```
-
-##### Data.PointerString
-
-Currently, Base Julia doesn't provide the concept of a true "weakref" String type; i.e. a substring-like type that doesn't also hold a reference to its original data. The `Data.PointerString` type provides this interface with a minimal set of methods to satisfy some basic string functionality. For more involved string processing needs, the user will need to convert to a proper String type; i.e. `string(str::Data.PointerString)`. It is expected in future iterations of the language that Julia will gain native and better support for this type of structure, so it won't need to be defined here.
