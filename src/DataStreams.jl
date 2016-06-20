@@ -1,3 +1,4 @@
+VERSION >= v"0.4.0-dev+6521" && __precompile__(true)
 """
 The `DataStreams.jl` package defines a data processing framework based on Sources, Sinks, and the `Data.stream!` function.
 
@@ -20,31 +21,13 @@ The typical approach for a new package to "satisfy" the DataStreams interface is
 """
 module DataStreams
 
-export Data, PointerString
+export Data
 
 module Data
 
-using Compat
-
-export PointerString
-"""
-A custom "weakref" string type that only stores a Ptr{UInt8} and len::Int.
-Allows for extremely efficient string parsing/movement in some cases between files and databases.
-
-**Please note that no original reference is kept to the parent string/memory, so `PointerString`s become unsafe
-once the parent object goes out of scope (i.e. loses a reference to it)**
-"""
-immutable PointerString{T} <: AbstractString
-    ptr::Ptr{T}
-    len::Int
+if !isdefined(Core, :String)
+    typealias String UTF8String
 end
-
-const NULLSTRING = PointerString(Ptr{UInt8}(0), 0)
-const NULLSTRING16 = PointerString(Ptr{UInt16}(0), 0)
-const NULLSTRING32 = PointerString(Ptr{UInt32}(0), 0)
-Base.endof(x::PointerString) = x.len
-Base.length(x::PointerString) = x.len
-Base.next(x::PointerString, i::Int) = (Char(unsafe_load(x.ptr, i)),i+1)
 
 """
 A `Data.Source` type holds data that can be read/queried/parsed/viewed/streamed; i.e. a "true data source"
@@ -114,7 +97,6 @@ The `Data.Sink` interface includes the following:
  * `Data.schema(::Data.Sink) => Data.Schema`; typically the `Sink` type will store the `Data.Schema` directly, but this isn't strictly required
 """
 abstract Sink
-typealias SourceOrSink Union{Source, Sink}
 
 """
 `Data.stream!(::Data.Source, ::Data.Sink)` starts transfering data from a newly constructed `Source` type to a newly constructed `Sink` type.
@@ -122,12 +104,6 @@ Data transfer typically continues until `eof(source) == true`, i.e. the `Source`
 no longer receive data. See individual `Data.stream!` methods for more details on specific `Source`/`Sink` combinations.
 """
 function stream!#(::Source, ::Sink)
-end
-
-# creates a new Data.Sink of type `T` according to `source` schema and streams data to it
-function Data.stream!{T<:Data.Sink}(source::Data.Source, ::Type{T})
-    sink = T(Data.schema(source))
-    return Data.stream!(source, sink)
 end
 
 """
@@ -139,22 +115,22 @@ Access to `Data.Schema` fields includes:
  * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`
 """
 type Schema
-    header::Vector{Compat.UTF8String}  # column names
-    types::Vector{DataType}     # Julia types of columns
-    rows::Int                   # number of rows in the dataset
-    cols::Int                   # number of columns in a dataset
+    header::Vector{String}       # column names
+    types::Vector{DataType}      # Julia types of columns
+    rows::Int                    # number of rows in the dataset
+    cols::Int                    # number of columns in a dataset
     metadata::Dict{Any, Any}     # for any other metadata we'd like to keep around (not used for '==' operation)
     function Schema(header::Vector, types::Vector{DataType}, rows::Integer=0, metadata::Dict=Dict())
         cols = length(header)
         cols != length(types) && throw(ArgumentError("length(header): $(length(header)) must == length(types): $(length(types))"))
-        header = Compat.UTF8String[string(x) for x in header]
+        header = String[string(x) for x in header]
         return new(header, types, rows, cols, metadata)
     end
 end
 
-Schema(header, types::Vector{DataType}, rows::Integer=0, meta::Dict=Dict()) = Schema(Compat.UTF8String[i for i in header], types, rows, meta)
-Schema(types::Vector{DataType}, rows::Integer=0, meta::Dict=Dict()) = Schema(Compat.UTF8String["Column$i" for i = 1:length(types)], types, rows, meta)
-const EMPTYSCHEMA = Schema(Compat.UTF8String[], DataType[], 0, Dict())
+Schema(header, types::Vector{DataType}, rows::Integer=0, meta::Dict=Dict()) = Schema(String[i for i in header], types, rows, meta)
+Schema(types::Vector{DataType}, rows::Integer=0, meta::Dict=Dict()) = Schema(String["Column$i" for i = 1:length(types)], types, rows, meta)
+const EMPTYSCHEMA = Schema(String[], DataType[], 0, Dict())
 Schema() = EMPTYSCHEMA
 
 header(sch::Schema) = sch.header
@@ -162,96 +138,60 @@ types(sch::Schema) = sch.types
 Base.size(sch::Schema) = (sch.rows, sch.cols)
 Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
 import Base.==
-==(s1::Schema, s2::Schema) = header(s1) == header(s2) && types(s1) == types(s2) && size(s1) == size(s2)
+==(s1::Schema, s2::Schema) = types(s1) == types(s2) && size(s1) == size(s2)
+
+function Base.show(io::IO, schema::Schema)
+    println(io, "Data.Schema:")
+    println(io, "rows: $(schema.rows)\tcols: $(schema.cols)")
+    if schema.cols <= 0
+        println(io)
+    else
+        println(io, "Columns:")
+        Base.print_matrix(io, hcat(schema.header, schema.types))
+    end
+end
 
 "Returns the `Data.Schema` for `io`"
-schema(io::SourceOrSink) = io.schema # by default, we assume the `Source`/`Sink` stores the schema directly
+schema(io) = io.schema # by default, we assume the `Source`/`Sink` stores the schema directly
 "Returns the header/column names (if any) associated with a specific `Source` or `Sink`"
-header(io::SourceOrSink) = header(schema(io))
+header(io) = header(schema(io))
 "Returns the column types associated with a specific `Source` or `Sink`"
-types(io::SourceOrSink) = types(schema(io))
+types(io) = types(schema(io))
 "Returns the (# of rows,# of columns) associated with a specific `Source` or `Sink`"
 Base.size(io::Source) = size(schema(io))
 Base.size(io::Source, i) = size(schema(io),i)
 
-"""
-A generic `Source` type that fulfills the DataStreams interface
-wraps any kind of Julia structure `T`; by default `T` = Vector{NullableVector}
-"""
-type Table{T} <: Source
-    schema::Schema
-    data::T
-    other::Any # for other metadata, references, etc.
-end
-
-function Base.show{T}(io::IO, x::Table{T})
-    eltyp = T == Vector{NullableVector} ? "" : "{$T}"
-    println(io, "Data.Table$eltyp:")
-    showcompact(io, x.schema)
-    println(); println(io, "\tColumn Data:")
-    types = Data.types(x)
-    for col = 1:min(MAX_NUM_OF_COLS_TO_PRINT,size(x,2))
-        print(io, "\t"); showcompact(io, Data.column(x, col, types[col]).values)
-        println()
-    end
-    MAX_NUM_OF_COLS_TO_PRINT < size(x,2) && println(io, "\t...")
-end
-
-using NullableArrays
-Base.string(x::NullableVector{Data.PointerString}) = NullableArray(Compat.UTF8String[x for x in x.values], x.isnull)
-
-# Constructors
-function Table(schema::Schema, other=0)
-    rows, cols = size(schema)
-    return Table(schema, NullableVector[NullableArray(T, rows) for T in types(schema)], other)
-end
-
-# define our own default Data.stream! method since Data.Table <: Source
-function Data.stream!(source::Data.Source, ::Type{Data.Table})
-    sink = Data.Table(Data.schema(source))
+# generic definitions
+# creates a new Data.Sink of type `T` according to `source` schema and streams data to it
+function Data.stream!{T<:Data.Sink}(source::Data.Source, ::Type{T})
+    sink = T(Data.schema(source))
     return Data.stream!(source, sink)
 end
 
-Table(header::Vector, types::Vector{DataType}, rows::Integer=0, other=0) = Table(Schema(header, types, rows), other)
-Table(types::Vector{DataType}, rows::Integer=0, other=0) = Table(Schema(types, rows), other)
-Table(source::Source) = Table(schema(source))
-function Table{T}(A::AbstractArray{T,2}, header=Compat.UTF8String[], other=0)
-    rows, cols = size(A)
-    types = DataType[typeof(A[1,col]) for col = 1:cols]
-    data = NullableVector[convert(NullableArray{types[col],1},NullableArray(A[:,col])) for col = 1:cols]
-    header = isempty(header) ? Compat.UTF8String["Column$i" for i = 1:cols] : header
-    return Table(Schema(header, types, rows), data, other)
+# DataFrames definitions
+using DataFrames, NullableArrays
+
+function Data.schema(df::DataFrame)
+    return Data.Schema(map(string,names(df)),
+            DataType[eltype(A) <: Nullable ? eltype(eltype(A)) : eltype(A) for A in df.columns], size(df, 1))
 end
 
-# Interface
-# column access
-function column(dt::Table, j::Integer, T::DataType)
-    (0 < j < dt.schema.cols+1) || throw(ArgumentError("column index $i out of range"))
-    return unsafe_column(dt, j, T)
-end
-@inline unsafe_column{T}(dt::Table, j, ::Type{T}) = (@inbounds col = dt.data[j]::NullableVector{T}; return col)
-
-function Base.getindex(dt::Table, i, j)
-    col = column(dt, j, types(dt)[j])
-    return col[i]
+function DataFrame(sch::Data.Schema)
+    rows, cols = size(sch)
+    columns = Vector{Any}(cols)
+    types = Data.types(sch)
+    parent = haskey(sch.metadata, "parent") ? sch.metadata["parent"] : UInt8[]
+    for i = 1:cols
+        columns[i] = NullableArray{types[i],1}(Array{types[i]}(rows), Array{Bool}(rows), parent)
+    end
+    return DataFrame(columns, DataFrames.Index(map(Symbol, header(sch))))
 end
 
-Base.getindex(::Table, i, ::Colon) = throw(ArgumentError("row-level indexing not supported by `Data.Table`. Access columns individually or convert a `DataFrame(dt::Data.Table)` for more involved data manipulation needs."))
-
-include("io.jl")
+function Data.stream!(source::Data.Source, ::Type{DataFrame})
+    sink = DataFrame(Data.schema(source))
+    return Data.stream!(source, sink)
+end
 
 end # module Data
+
 end # module DataStreams
-
-using Compat
-
-# Define conversions between Data.Table and DataFrame if the latter is defined
-if isdefined(:DataFrames)
-    DataFrames.DataFrame(dt::DataStreams.Data.Table) = DataFrame(convert(Vector{Any}, DataArray[DataArray(x.values,x.isnull) for x in dt.data]), Symbol[symbol(x) for x in DataStreams.Data.header(dt)])
-    function DataStreams.Data.Table(df::DataFrames.DataFrame)
-        rows, cols = size(df)
-        schema = DataStreams.Data.Schema(Compat.UTF8String[string(c) for c in names(df)], DataType[eltype(i) for i in df.columns], rows)
-        data = NullableArrays.NullableVector[NullableArrays.NullableArray(x.data, convert(Vector{Bool},x.na)) for x in df.columns]
-        return DataStreams.Data.Table(schema, data, 0)
-    end
-end
