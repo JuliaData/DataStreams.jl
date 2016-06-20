@@ -1,8 +1,9 @@
 # DataStreams
 
 [![DataStreams](http://pkg.julialang.org/badges/DataStreams_0.4.svg)](http://pkg.julialang.org/?pkg=DataStreams&ver=0.4)
+[![DataStreams](http://pkg.julialang.org/badges/DataStreams_0.5.svg)](http://pkg.julialang.org/?pkg=DataStreams)
 
-Linux: [![Build Status](https://travis-ci.org/JuliaDB/DataStreams.jl.svg?branch=master)](https://travis-ci.org/JuliaDB/DataStreams.jl)
+Linux and OS X: [![Build Status](https://travis-ci.org/JuliaDB/DataStreams.jl.svg?branch=master)](https://travis-ci.org/JuliaDB/DataStreams.jl)
 
 Windows: [![Build Status](https://ci.appveyor.com/api/projects/status/github/JuliaDB/DataStreams.jl?branch=master&svg=true)](https://ci.appveyor.com/project/JuliaDB/datastreams-jl/branch/master)
 
