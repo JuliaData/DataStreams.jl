@@ -180,9 +180,14 @@ function DataFrame(sch::Data.Schema)
     rows, cols = size(sch)
     columns = Vector{Any}(cols)
     types = Data.types(sch)
-    parent = haskey(sch.metadata, "parent") ? sch.metadata["parent"] : UInt8[]
     for i = 1:cols
-        columns[i] = NullableArray{types[i],1}(Array{types[i]}(rows), Array{Bool}(rows), parent)
+        T = types[i]
+        A = Array{T}(rows);
+        columns[i] = NullableArray{T,1}(A, Array{Bool}(rows),
+                        haskey(sch.metadata, "parent") ? sch.metadata["parent"] : UInt8[])
+        if T <: AbstractString && length(fieldnames(T)) == 2
+            ccall(:memset, Void, (Ptr{Void}, Cint, Csize_t), A, 0, rows * sizeof(T))
+        end
     end
     return DataFrame(columns, DataFrames.Index(map(Symbol, header(sch))))
 end
