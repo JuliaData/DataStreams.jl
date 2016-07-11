@@ -21,7 +21,7 @@ The typical approach for a new package to "satisfy" the DataStreams interface is
 """
 module DataStreams
 
-export Data
+export Data, DataFrame
 
 module Data
 
@@ -51,31 +51,39 @@ The `Data.Source` interface includes the following:
 
  * `Data.schema(::Data.Source) => Data.Schema`; typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required
  * `Data.reset!(::Data.Source)`; used to reset a `Source` type from `READING` or `DONE` to the `BEGINNING` state, ready to be read from again
- * `eof(::Data.Source)`; indicates whether the `Source` type is in the `DONE` state; i.e. all data has been exhausted from this source
+ * `isdone(::Data.Source, row, col)`; indicates whether the `Source` type is in the `DONE` state; i.e. all data has been exhausted from this source
 
 """
 abstract Source
 
-function reset!
-end
-function isdone
-end
-# TODO: flesh out the "fetching"/"reading"/"ingesting" interface for `Source`s
- # getting results: getrow(::Source) => Any[], getcol(::Source) => T[], getfield(::Source) => T; getrows, getcols
- # iterating through results: eachrow(::Source) => Any[], eachcol(::Source) => T[], eachfield(::Source) => T
- # printing/viewing results: printrow(::Source), printcol(::Source), printfield(::Source); printrows, printcols
-# function getfield
-# end
-# function getrow
-# end
-# function eachfield
-# end
-# function eachrow
-# end
-# function printfield
-# end
-# function printrow
-# end
+function reset! end
+function isdone end
+
+# isdone(stream) = isdone(stream, 1, 1)
+
+abstract StreamType
+immutable Field <: StreamType end
+immutable Column <: StreamType end
+
+"""
+`Data.streamtype{T<:Data.Source, S<:Data.StreamType}(::Type{T}, ::Type{S})` => Bool
+
+Indicates whether the source `T` supports streaming of type `S`. To be overloaded by individual sources according to supported `Data.StreamType`s
+"""
+function streamtype end
+
+# generic fallback for all Sources
+Data.streamtype{T<:StreamType}(source, ::Type{T}) = false
+
+"""
+`Data.streamtypes{T<:Data.Sink}(::Type{T})` => Vector{StreamType}
+
+Returns a list of `Data.StreamType`s that the sink supports ingesting; the order of elements indicates the sink's streaming preference
+"""
+function streamtypes end
+
+function getfield end
+function getcolumn end
 
 """
 A `Data.Sink` type represents a data destination; i.e. an "true data source" such as a database, file, API endpoint, etc.
@@ -100,7 +108,7 @@ abstract Sink
 
 """
 `Data.stream!(::Data.Source, ::Data.Sink)` starts transfering data from a newly constructed `Source` type to a newly constructed `Sink` type.
-Data transfer typically continues until `eof(source) == true`, i.e. the `Source` is exhausted, at which point the `Sink` is closed and may
+Data transfer typically continues until `isdone(source) == true`, i.e. the `Source` is exhausted, at which point the `Sink` is closed and may
 no longer receive data. See individual `Data.stream!` methods for more details on specific `Source`/`Sink` combinations.
 """
 function stream!#(::Source, ::Sink)
@@ -117,7 +125,7 @@ Access to `Data.Schema` fields includes:
 type Schema
     header::Vector{String}       # column names
     types::Vector{DataType}      # Julia types of columns
-    rows::Int                    # number of rows in the dataset
+    rows::Integer                # number of rows in the dataset
     cols::Int                    # number of columns in a dataset
     metadata::Dict{Any, Any}     # for any other metadata we'd like to keep around (not used for '==' operation)
     function Schema(header::Vector, types::Vector{DataType}, rows::Integer=0, metadata::Dict=Dict())
@@ -160,12 +168,22 @@ types(io) = types(schema(io))
 "Returns the (# of rows,# of columns) associated with a specific `Source` or `Sink`"
 Base.size(io::Source) = size(schema(io))
 Base.size(io::Source, i) = size(schema(io),i)
+setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows; nothing) : nothing
+setcols!(source, cols) = isdefined(source, :schema) ? (source.schema.cols = cols; nothing) : nothing
 
 # generic definitions
 # creates a new Data.Sink of type `T` according to `source` schema and streams data to it
 function Data.stream!{T<:Data.Sink}(source::Data.Source, ::Type{T})
     sink = T(Data.schema(source))
     return Data.stream!(source, sink)
+end
+
+function Data.stream!{T, TT}(source::T, sink::TT)
+    typs = Data.streamtypes(TT)
+    for typ in typs
+        Data.streamtype(T, typ) && return Data.stream!(source, typ, sink)
+    end
+    throw(ArgumentError("$source doesn't support the supported streaming types of $sink: $typs"))
 end
 
 # DataFrames definitions
@@ -182,19 +200,102 @@ function DataFrame(sch::Data.Schema)
     types = Data.types(sch)
     for i = 1:cols
         T = types[i]
-        A = Array{T}(rows);
-        columns[i] = NullableArray{T,1}(A, Array{Bool}(rows),
+        A = Array{T}(max(0, rows));
+        columns[i] = NullableArray{T,1}(A, Array{Bool}(max(0, rows)),
                         haskey(sch.metadata, "parent") ? sch.metadata["parent"] : UInt8[])
         if T <: AbstractString && length(fieldnames(T)) == 2
-            ccall(:memset, Void, (Ptr{Void}, Cint, Csize_t), A, 0, rows * sizeof(T))
+            ccall(:memset, Void, (Ptr{Void}, Cint, Csize_t), A, 0, max(0, rows) * sizeof(T))
         end
     end
     return DataFrame(columns, DataFrames.Index(map(Symbol, header(sch))))
 end
 
+function Data.isdone(source::DataFrame, row, col)
+    rows, cols = size(source)
+    return row == rows && col == cols
+end
+
+Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]; return v)
+Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds c = source.columns[col]; return c)
+Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
+Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
+Data.streamtypes(::Type{DataFrame}) = [Data.Column, Data.Field]
+
 function Data.stream!(source::Data.Source, ::Type{DataFrame})
     sink = DataFrame(Data.schema(source))
     return Data.stream!(source, sink)
+end
+
+function pushfield!{T}(source, dest::NullableVector{T}, row, col)
+    push!(dest, Data.getfield(source, T, row, col))
+    return
+end
+
+function getfield!{T}(source, dest::NullableVector{T}, row, col)
+    @inbounds dest[row] = Data.getfield(source, T, row, col)
+    return
+end
+
+function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame)
+    Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
+    rows, cols = size(source)
+    columns = sink.columns
+    if rows == -1
+        row = 0
+        while !Data.isdone(source, row, cols)
+            for col = 1:cols
+                Data.pushfield!(source, columns[col], row, col)
+            end
+            row += 1
+        end
+        Data.setrows!(source, row)
+    else
+        for row = 1:rows, col = 1:cols
+            Data.getfield!(source, columns[col], row, col)
+        end
+    end
+    return sink
+end
+
+function pushcolumn!{T}(source, dest::NullableVector{T}, row, col)
+    column = Data.getcolumn(source, T, col)
+    append!(dest, column)
+    return length(dest)
+end
+
+function getcolumn!{T}(source, dest::NullableVector{T}, row, col)
+    column = Data.getcolumn(source, T, col)
+    for i = 1:length(dest)
+        @inbounds dest[row + i - 1] = column[i]
+    end
+    return length(dest)
+end
+
+function Data.stream!{T}(source::T, ::Type{Data.Column}, sink::DataFrame)
+    Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
+    rows, cols = size(source)
+    columns = sink.columns
+    types = Data.types(source)
+    if rows == -1
+        row = 0
+        while !Data.isdone(source, row, cols)
+            row += 1
+            for col = 1:cols
+                @inbounds T = types[col]
+                row += Data.pushcolumn!(source, columns[col], row, col)
+            end
+        end
+    else
+        row = 0
+        while !Data.isdone(source, row, cols)
+            row += 1
+            for col = 1:cols
+                @inbounds T = types[col]
+                row += Data.getcolumn!(source, columns[col], row, col)
+            end
+        end
+    end
+    return sink
 end
 
 end # module Data
