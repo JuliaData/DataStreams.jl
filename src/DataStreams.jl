@@ -212,7 +212,7 @@ end
 
 function Data.isdone(source::DataFrame, row, col)
     rows, cols = size(source)
-    return row == rows && col == cols
+    return row > rows && col > cols
 end
 
 Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]; return v)
@@ -239,10 +239,11 @@ end
 function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame)
     Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
     rows, cols = size(source)
+    Data.isdone(source, 0, 0) && return sink
     columns = sink.columns
     if rows == -1
-        row = 0
-        while !Data.isdone(source, row, cols)
+        row = 1
+        while !Data.isdone(source, row, cols+1)
             for col = 1:cols
                 Data.pushfield!(source, columns[col], row, col)
             end
@@ -274,25 +275,26 @@ end
 function Data.stream!{T}(source::T, ::Type{Data.Column}, sink::DataFrame)
     Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
     rows, cols = size(source)
+    Data.isdone(source, 0, 0) && return sink
     columns = sink.columns
     types = Data.types(source)
     if rows == -1
-        row = 0
-        while !Data.isdone(source, row, cols)
-            row += 1
+        row = 1
+        while !Data.isdone(source, row, cols+1)
+            newrows = 0
             for col = 1:cols
-                @inbounds T = types[col]
-                row += Data.pushcolumn!(source, columns[col], row, col)
+                newrows = Data.pushcolumn!(source, columns[col], row, col)
             end
+            row += newrows
         end
     else
-        row = 0
-        while !Data.isdone(source, row, cols)
-            row += 1
+        row = 1
+        while !Data.isdone(source, row, cols+1)
+            newrows = 0
             for col = 1:cols
-                @inbounds T = types[col]
-                row += Data.getcolumn!(source, columns[col], row, col)
+                newrows = Data.getcolumn!(source, columns[col], row, col)
             end
+            row += newrows
         end
     end
     return sink
