@@ -178,12 +178,20 @@ function Data.stream!{T<:Data.Sink}(source::Data.Source, ::Type{T})
     return Data.stream!(source, sink)
 end
 
+function Data.stream!{T, TT}(source::T, ::Type{TT})
+    typs = Data.streamtypes(TT)
+    for typ in typs
+        Data.streamtype(T, typ) && return Data.stream!(source, typ, TT)
+    end
+    throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
+end
+
 function Data.stream!{T, TT}(source::T, sink::TT)
     typs = Data.streamtypes(TT)
     for typ in typs
         Data.streamtype(T, typ) && return Data.stream!(source, typ, sink)
     end
-    throw(ArgumentError("$source doesn't support the supported streaming types of $sink: $typs"))
+    throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
 end
 
 # DataFrames definitions
@@ -221,9 +229,9 @@ Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
 Data.streamtypes(::Type{DataFrame}) = [Data.Column, Data.Field]
 
-function Data.stream!(source::Data.Source, ::Type{DataFrame})
+function Data.stream!{T}(source::T, ::Type{Data.Field}, ::Type{DataFrame})
     sink = DataFrame(Data.schema(source))
-    return Data.stream!(source, sink)
+    return Data.stream!(source, Data.Field, sink)
 end
 
 function pushfield!{T}(source, dest::NullableVector{T}, row, col)
@@ -258,45 +266,33 @@ function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame)
     return sink
 end
 
-function pushcolumn!{T}(source, dest::NullableVector{T}, row, col)
+function pushcolumn!{T}(source, dest::NullableVector{T}, col)
     column = Data.getcolumn(source, T, col)
-    append!(dest, column)
+    append!(dest.values, column.values)
+    append!(dest.isnull, column.isnull)
+    append!(dest.parent, column.parent)
     return length(dest)
 end
 
-function getcolumn!{T}(source, dest::NullableVector{T}, row, col)
-    column = Data.getcolumn(source, T, col)
-    for i = 1:length(dest)
-        @inbounds dest[row + i - 1] = column[i]
-    end
-    return length(dest)
+function Data.stream!{T}(source::T, ::Type{Data.Column}, ::Type{DataFrame})
+    sch = Data.schema(source)
+    # we don't want to pre-allocate rows for Column-based streaming
+    sink = DataFrame(Data.Schema(Data.header(sch), Data.types(sch), -1, sch.metadata))
+    return Data.stream!(source, Data.Column, sink)
 end
 
 function Data.stream!{T}(source::T, ::Type{Data.Column}, sink::DataFrame)
     Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
     rows, cols = size(source)
-    Data.isdone(source, 0, 0) && return sink
+    Data.isdone(source, 1, 1) && return sink
     columns = sink.columns
-    types = Data.types(source)
-    if rows == -1
-        row = 1
-        while !Data.isdone(source, row, cols+1)
-            newrows = 0
-            for col = 1:cols
-                newrows = Data.pushcolumn!(source, columns[col], row, col)
-            end
-            row += newrows
-        end
-    else
-        row = 1
-        while !Data.isdone(source, row, cols+1)
-            newrows = 0
-            for col = 1:cols
-                newrows = Data.getcolumn!(source, columns[col], row, col)
-            end
-            row += newrows
+    row = 0
+    while !Data.isdone(source, row+1, cols+1)
+        for col = 1:cols
+            row = Data.pushcolumn!(source, columns[col], col)
         end
     end
+    Data.setrows!(source, row)
     return sink
 end
 
