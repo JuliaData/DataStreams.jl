@@ -58,6 +58,7 @@ abstract Source
 
 function reset! end
 function isdone end
+function reference end
 
 # isdone(stream) = isdone(stream, 1, 1)
 
@@ -145,8 +146,6 @@ header(sch::Schema) = sch.header
 types(sch::Schema) = sch.types
 Base.size(sch::Schema) = (sch.rows, sch.cols)
 Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
-import Base.==
-==(s1::Schema, s2::Schema) = types(s1) == types(s2) && size(s1) == size(s2)
 
 function Base.show(io::IO, schema::Schema)
     println(io, "Data.Schema:")
@@ -172,84 +171,109 @@ setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows
 setcols!(source, cols) = isdefined(source, :schema) ? (source.schema.cols = cols; nothing) : nothing
 
 # generic definitions
-# creates a new Data.Sink of type `T` according to `source` schema and streams data to it
-function Data.stream!{T<:Data.Sink}(source::Data.Source, ::Type{T})
-    sink = T(Data.schema(source))
-    return Data.stream!(source, sink)
-end
-
-function Data.stream!{T, TT}(source::T, ::Type{TT})
+function Data.stream!{T, TT}(source::T, ::Type{TT}, append::Bool, args...)
     typs = Data.streamtypes(TT)
     for typ in typs
-        Data.streamtype(T, typ) && return Data.stream!(source, typ, TT)
+        if Data.streamtype(T, typ)
+            sink = TT(source, typ, append, args...)
+            return Data.stream!(source, typ, sink, append)
+        end
+    end
+    throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
+end
+# for backwards compatibility
+Data.stream!{T, TT}(source::T, ::Type{TT}) = Data.stream!(source, TT, false, ())
+
+function Data.stream!{T, TT}(source::T, sink::TT, append::Bool)
+    typs = Data.streamtypes(TT)
+    for typ in typs
+        if Data.streamtype(T, typ)
+            sink = TT(sink, source, typ, append)
+            return Data.stream!(source, typ, sink, append)
+        end
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
 end
 
-function Data.stream!{T, TT}(source::T, sink::TT)
-    typs = Data.streamtypes(TT)
-    for typ in typs
-        Data.streamtype(T, typ) && return Data.stream!(source, typ, sink)
-    end
-    throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
-end
-
-# DataFrames definitions
-using DataFrames, NullableArrays
+# DataFrames DataStreams definitions
+using DataFrames, NullableArrays, WeakRefStrings
 
 function Data.schema(df::DataFrame)
-    return Data.Schema(map(string,names(df)),
+    return Data.Schema(map(string, names(df)),
             DataType[eltype(A) <: Nullable ? eltype(eltype(A)) : eltype(A) for A in df.columns], size(df, 1))
 end
 
-function DataFrame(sch::Data.Schema)
-    rows, cols = size(sch)
-    columns = Vector{Any}(cols)
-    types = Data.types(sch)
-    for i = 1:cols
-        T = types[i]
-        A = Array{T}(max(0, rows));
-        columns[i] = NullableArray{T,1}(A, Array{Bool}(max(0, rows)),
-                        haskey(sch.metadata, "parent") ? sch.metadata["parent"] : UInt8[])
-        if T <: AbstractString && length(fieldnames(T)) == 2
-            ccall(:memset, Void, (Ptr{Void}, Cint, Csize_t), A, 0, max(0, rows) * sizeof(T))
-        end
-    end
-    return DataFrame(columns, DataFrames.Index(map(Symbol, header(sch))))
-end
-
+# DataFrame as a Data.Source
 function Data.isdone(source::DataFrame, row, col)
     rows, cols = size(source)
     return row > rows && col > cols
 end
 
-Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]; return v)
-Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds c = source.columns[col]; return c)
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
-Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
-Data.streamtypes(::Type{DataFrame}) = [Data.Column, Data.Field]
+Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]::T; return v)
 
-function Data.stream!{T}(source::T, ::Type{Data.Field}, ::Type{DataFrame})
-    sink = DataFrame(Data.schema(source))
-    return Data.stream!(source, Data.Field, sink)
+Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
+Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds c = source.columns[col]; return c)
+
+# DataFrame as a Data.Sink
+function DataFrame{T<:Data.StreamType}(source, ::Type{T}, append, args...)
+    sch = Data.schema(source)
+    rows, cols = size(sch)
+    rows = T === Data.Column ? 0 : rows # don't pre-allocate for Column streaming
+    columns = Vector{Any}(cols)
+    types = Data.types(sch)
+    reference = Data.reference(source)
+    for i = 1:cols
+        typ = types[i]
+        A = Array{typ}(rows)
+        columns[i] = NullableArray{typ,1}(A, fill(true, rows), isempty(reference) ? UInt8[] : reference)
+    end
+    return DataFrame(columns, map(Symbol, Data.header(sch)))
 end
+
+Base.empty!(A::NullableArray) = (empty!(A.values); empty!(A.isnull); return A)
+
+# given an existing DataFrame (`sink`), make any necessary changes for streaming `source`
+# to it, given we know if we'll be `appending` or not
+function DataFrame{T<:Data.StreamType}(sink, source, ::Type{T}, append)
+    sch = Data.schema(source)
+    rows, cols = size(sch)
+    if T === Data.Column
+        if !append
+            for col in sink.columns
+                empty!(col)
+            end
+        end
+    else
+        if rows > 0
+            newlen = rows + (append ? size(sink, 1) : 0)
+            for col in sink.columns
+                resize!(col, newlen)
+            end
+        end
+    end
+    return sink
+end
+
+Data.streamtypes(::Type{DataFrame}) = [Data.Column, Data.Field]
 
 function pushfield!{T}(source, dest::NullableVector{T}, row, col)
     push!(dest, Data.getfield(source, T, row, col))
     return
 end
 
-function getfield!{T}(source, dest::NullableVector{T}, row, col)
-    @inbounds dest[row] = Data.getfield(source, T, row, col)
+function getfield!{T}(source, dest::NullableVector{T}, row, col, sinkrow)
+    @inbounds dest[sinkrow] = Data.getfield(source, T, row, col)
     return
 end
 
-function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame)
+function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame, append::Bool=true)
     Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
     rows, cols = size(source)
     Data.isdone(source, 0, 0) && return sink
     columns = sink.columns
     if rows == -1
+        sinkrows = size(sink, 1)
         row = 1
         while !Data.isdone(source, row, cols+1)
             for col = 1:cols
@@ -257,10 +281,14 @@ function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame)
             end
             row += 1
         end
-        Data.setrows!(source, row)
+        Data.setrows!(source, sinkrows + row)
     else
-        for row = 1:rows, col = 1:cols
-            Data.getfield!(source, columns[col], row, col)
+        sinkrow = append ? size(sink, 1) - size(source, 1) + 1 : 1
+        for row = 1:rows
+            for col = 1:cols
+                Data.getfield!(source, columns[col], row, col, sinkrow)
+            end
+            sinkrow += 1
         end
     end
     return sink
@@ -270,29 +298,41 @@ function pushcolumn!{T}(source, dest::NullableVector{T}, col)
     column = Data.getcolumn(source, T, col)
     append!(dest.values, column.values)
     append!(dest.isnull, column.isnull)
-    append!(dest.parent, column.parent)
     return length(dest)
 end
 
-function Data.stream!{T}(source::T, ::Type{Data.Column}, ::Type{DataFrame})
-    sch = Data.schema(source)
-    # we don't want to pre-allocate rows for Column-based streaming
-    sink = DataFrame(Data.Schema(Data.header(sch), Data.types(sch), -1, sch.metadata))
-    return Data.stream!(source, Data.Column, sink)
+function pushcolumn!{T}(source, dest::NullableVector{WeakRefString{T}}, col)
+    column = Data.getcolumn(source, WeakRefString{T}, col)
+    offset = length(dest.values)
+    parentoffset = length(dest.parent)
+    append!(dest.isnull, column.isnull)
+    append!(dest.parent, column.parent)
+    # appending new data to `dest` would invalid all existing WeakRefString pointers
+    resize!(dest.values, length(dest) + length(column))
+    for i = 1:offset
+        old = dest.values[i]
+        dest.values[i] = WeakRefString{T}(pointer(dest.parent, old.ind), old.len, old.ind)
+    end
+    for i = 1:length(column)
+        old = column.values[i]
+        dest.values[offset + i] = WeakRefString{T}(pointer(dest.parent, parentoffset + old.ind), old.len, parentoffset + old.ind)
+    end
+    return length(dest)
 end
 
-function Data.stream!{T}(source::T, ::Type{Data.Column}, sink::DataFrame)
+function Data.stream!{T}(source::T, ::Type{Data.Column}, sink::DataFrame, append::Bool=true)
     Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
     rows, cols = size(source)
     Data.isdone(source, 1, 1) && return sink
     columns = sink.columns
+    sinkrows = size(sink, 1)
     row = 0
     while !Data.isdone(source, row+1, cols+1)
         for col = 1:cols
             row = Data.pushcolumn!(source, columns[col], col)
         end
     end
-    Data.setrows!(source, row)
+    Data.setrows!(source, sinkrows + row)
     return sink
 end
 
