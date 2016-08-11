@@ -14,5 +14,5 @@ deploydocs(
             "mkdocs",
             "mkdocs-material",
             "python-markdown-math"),
-    repo = "github.com/quinnj/DataStreams.jl.git"
+    repo = "github.com/JuliaData/DataStreams.jl.git"
 )

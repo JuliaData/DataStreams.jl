@@ -1,24 +1,4 @@
 VERSION >= v"0.4.0-dev+6521" && __precompile__(true)
-"""
-The `DataStreams.jl` package defines a data processing framework based on Sources, Sinks, and the `Data.stream!` function.
-
-`DataStreams` defines the common infrastructure leveraged by individual packages to create systems of various
-data sources and sinks that talk to each other in a unified, consistent way.
-
-The workflow enabled by the `DataStreams` framework involves:
-
- * constructing new `Source` types to allow streaming data from files, databases, etc.
- * `Data.stream!` those datasets to newly created or existing `Sink` types
- * convert `Sink` types that have received data into new `Source` types
- * continue to `Data.stream!` from `Source`s to `Sink`s
-
-The typical approach for a new package to "satisfy" the DataStreams interface is to:
-
- * Define a `Source` type that wraps an "true data source" (i.e. a file, database table/query, etc.) and fulfills the `Source` interface (see `?Data.Source`)
- * Define a `Sink` type that can create or write data to an "true data source" and fulfills the `Sink` interface (see `?Data.Sink`)
- * Define appropriate `Data.stream!(::Source, ::Sink)` methods as needed between various combinations of Sources and Sinks;
-   i.e. define `Data.stream!(::NewPackage.Source, ::CSV.Sink)` and `Data.stream!(::CSV.Source, ::NewPackage.Sink)`
-"""
 module DataStreams
 
 export Data, DataFrame
@@ -30,11 +10,11 @@ if !isdefined(Core, :String)
 end
 
 """
-A `Data.Source` type holds data that can be read/queried/parsed/viewed/streamed; i.e. a "true data source"
+A `Data.Source` type represents data that can be read/queried/parsed/viewed/streamed; i.e. a "true data source"
 To clarify, there are two distinct types of "source":
 
   1) the "true data source", which would be the file, database, API, structure, etc; i.e. the actual data
-  2) the `Data.Source` julia object that wraps the "true source" and provides the `DataStreams` interface
+  2) the `Source` julia object that wraps the "true source" and implements the `Data.Source` interface
 
 `Source` types have two different types of constructors:
 
@@ -47,7 +27,19 @@ To clarify, there are two distinct types of "source":
   * `READING`: the ingestion of data from this `Source` has started and has not finished yet
   * `DONE`: the ingestion process has exhausted all data expected from this `Source`
 
-The `Data.Source` interface includes the following:
+The `Data.Source` interface requires the following definitions:
+
+  * `Data.schema(::Data.Source) => Data.Schema`; typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required
+  * `Data.isdone(::Data.Source, row, col) => Bool`;
+  * `Data.streamtype(::Type{Data.Source}, ::Type{Data.StreamType}) => Bool`;
+  * `Data.getfield{T}(::Data.Source, ::Type{T}, row, col) => T`;
+  * `Data.getcolumn{T}(::Data.Source, ::Type{T}, col) => AbstractVector{T}`;
+
+Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
+Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]::T; return v)
+
+Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
+Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds c = source.columns[col]; return c)
 
  * `Data.schema(::Data.Source) => Data.Schema`; typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required
  * `Data.reset!(::Data.Source)`; used to reset a `Source` type from `READING` or `DONE` to the `BEGINNING` state, ready to be read from again
@@ -59,8 +51,6 @@ abstract Source
 function reset! end
 function isdone end
 function reference end
-
-# isdone(stream) = isdone(stream, 1, 1)
 
 abstract StreamType
 immutable Field <: StreamType end
@@ -109,7 +99,7 @@ abstract Sink
 
 """
 `Data.stream!(::Data.Source, ::Data.Sink)` starts transfering data from a newly constructed `Source` type to a newly constructed `Sink` type.
-Data transfer typically continues until `isdone(source) == true`, i.e. the `Source` is exhausted, at which point the `Sink` is closed and may
+Data transfer typically continues until `Data.isdone(source, row, col) == true`, i.e. the `Source` is exhausted, at which point the `Sink` is closed and may
 no longer receive data. See individual `Data.stream!` methods for more details on specific `Source`/`Sink` combinations.
 """
 function stream!#(::Source, ::Sink)
