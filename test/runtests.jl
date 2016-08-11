@@ -14,8 +14,6 @@ data = [ 1 2 ; 10 20 ]
 @test Data.types(sch) == [Int, Int, Int]
 @test size(sch) == (ROWS, COLS)
 
-@test sch == Data.Schema([Int, Int, Int], ROWS)
-
 """
 A generic `Sink` type that fulfills the DataStreams interface
 wraps any kind of Julia structure `T`; by default `T` = Vector{NullableVector}
