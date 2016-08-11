@@ -1,12 +1,14 @@
-# See the mkdocs user guide for more information on these settings.
-#   http://www.mkdocs.org/user-guide/configuration/
-
 site_name:        DataStreams.jl
-repo_url:         https://github.com/quinnj/DataStreams.jl
+repo_url:         https://github.com/JuliaData/DataStreams.jl
 site_description: Source/Sink framework for data transfer in Julia
 site_author:      Jacob Quinn
 
 theme: material
+
+extra:
+  palette:
+    primary: 'indigo'
+    accent:  'blue'
 
 extra_css:
   - assets/Documenter.css
