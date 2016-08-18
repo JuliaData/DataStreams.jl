@@ -50,7 +50,7 @@ abstract Source
 
 function reset! end
 function isdone end
-function reference end
+reference(x) = UInt8[]
 
 abstract StreamType
 immutable Field <: StreamType end
@@ -184,6 +184,7 @@ function Data.stream!{T, TT}(source::T, sink::TT, append::Bool)
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
 end
+Data.stream!{T, TT<:Data.Sink}(source::T, sink::TT) = Data.stream!(source, sink, false)
 
 # DataFrames DataStreams definitions
 using DataFrames, NullableArrays, WeakRefStrings
@@ -200,23 +201,22 @@ function Data.isdone(source::DataFrame, row, col)
 end
 
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
-Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]::T; return v)
+Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]; return v)
 
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
 Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds c = source.columns[col]; return c)
 
 # DataFrame as a Data.Sink
-function DataFrame{T<:Data.StreamType}(source, ::Type{T}, append, args...)
-    sch = Data.schema(source)
+DataFrame{T<:Data.StreamType}(so, ::Type{T}, append, args...) = DataFrame(Data.schema(so), T, Data.reference(so))
+function DataFrame{T<:Data.StreamType}(sch::Schema, ::Type{T}=Data.Field, ref=UInt8[])
     rows, cols = size(sch)
-    rows = T === Data.Column ? 0 : rows # don't pre-allocate for Column streaming
+    rows = T === Data.Column  || rows < 0 ? 0 : rows # don't pre-allocate for Column streaming
     columns = Vector{Any}(cols)
     types = Data.types(sch)
-    reference = Data.reference(source)
     for i = 1:cols
         typ = types[i]
         A = Array{typ}(rows)
-        columns[i] = NullableArray{typ,1}(A, fill(true, rows), isempty(reference) ? UInt8[] : reference)
+        columns[i] = NullableArray{typ,1}(A, fill(true, rows), isempty(ref) ? UInt8[] : ref)
     end
     return DataFrame(columns, map(Symbol, Data.header(sch)))
 end
