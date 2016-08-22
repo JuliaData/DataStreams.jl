@@ -9,43 +9,6 @@ if !isdefined(Core, :String)
     typealias String UTF8String
 end
 
-"""
-A `Data.Source` type represents data that can be read/queried/parsed/viewed/streamed; i.e. a "true data source"
-To clarify, there are two distinct types of "source":
-
-  1) the "true data source", which would be the file, database, API, structure, etc; i.e. the actual data
-  2) the `Source` julia object that wraps the "true source" and implements the `Data.Source` interface
-
-`Source` types have two different types of constructors:
-
-  1) "independent constructors" that wrap "true data sources"
-  2) "sink constructors" where a `Data.Sink` object that has received data is turned into a new `Source` (useful for chaining data processing tasks)
-
-`Source`s also have a, currently implicit, notion of state:
-
-  * `BEGINNING`: a `Source` is in this state immediately after being constructed and is ready to be used; i.e. ready to read/parse/query/stream data from it
-  * `READING`: the ingestion of data from this `Source` has started and has not finished yet
-  * `DONE`: the ingestion process has exhausted all data expected from this `Source`
-
-The `Data.Source` interface requires the following definitions:
-
-  * `Data.schema(::Data.Source) => Data.Schema`; typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required
-  * `Data.isdone(::Data.Source, row, col) => Bool`;
-  * `Data.streamtype(::Type{Data.Source}, ::Type{Data.StreamType}) => Bool`;
-  * `Data.getfield{T}(::Data.Source, ::Type{T}, row, col) => T`;
-  * `Data.getcolumn{T}(::Data.Source, ::Type{T}, col) => AbstractVector{T}`;
-
-Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
-Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]::T; return v)
-
-Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
-Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds c = source.columns[col]; return c)
-
- * `Data.schema(::Data.Source) => Data.Schema`; typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required
- * `Data.reset!(::Data.Source)`; used to reset a `Source` type from `READING` or `DONE` to the `BEGINNING` state, ready to be read from again
- * `isdone(::Data.Source, row, col)`; indicates whether the `Source` type is in the `DONE` state; i.e. all data has been exhausted from this source
-
-"""
 abstract Source
 
 function reset! end
@@ -76,42 +39,22 @@ function streamtypes end
 function getfield end
 function getcolumn end
 
-"""
-A `Data.Sink` type represents a data destination; i.e. an "true data source" such as a database, file, API endpoint, etc.
-
-There are two broad types of `Sink`s:
-
-  1) "new sinks": an independent `Sink` constructor creates a *new* "true data source" that can be streamed to
-  2) "existing sinks": the `Sink` wraps an already existing "true data source" (or `Source` object that wraps an "true data source").
-    Upon construction of these `Sink`s, there is no new creation of "true data source"s; the "ulitmate data source" is simply wrapped to replace or append to
-
-`Sink`s also have notions of state:
-
-  * `BEGINNING`: the `Sink` is freshly constructed and ready to stream data to; this includes initial metadata like column headers
-  * `WRITING`: data has been streamed to the `Sink`, but is still open to receive more data
-  * `DONE`: the `Sink` has been closed and can no longer receive data
-
-The `Data.Sink` interface includes the following:
-
- * `Data.schema(::Data.Sink) => Data.Schema`; typically the `Sink` type will store the `Data.Schema` directly, but this isn't strictly required
-"""
 abstract Sink
 
-"""
-`Data.stream!(::Data.Source, ::Data.Sink)` starts transfering data from a newly constructed `Source` type to a newly constructed `Sink` type.
-Data transfer typically continues until `Data.isdone(source, row, col) == true`, i.e. the `Source` is exhausted, at which point the `Sink` is closed and may
-no longer receive data. See individual `Data.stream!` methods for more details on specific `Source`/`Sink` combinations.
-"""
-function stream!#(::Source, ::Sink)
+function stream!
 end
 
 """
 A `Data.Schema` describes a tabular dataset (i.e. a set of optionally named, typed columns with records as rows)
-Access to `Data.Schema` fields includes:
+`Data.Schema` allow `Data.Source` and `Data.Sink` to talk to each other and prepare to provide/receive data through streaming.
+`Data.Schema` fields include:
 
  * `Data.header(schema)` to return the header/column names in a `Data.Schema`
- * `Data.types(schema)` to return the column types in a `Data.Schema`
+ * `Data.types(schema)` to return the column types in a `Data.Schema`; `Nullable{T}` indicates columns that may contain missing data (null values)
  * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`
+
+`Data.Source` and `Data.Sink` interfaces both require that `Data.schema(source_or_sink)` be defined to ensure
+that other `Data.Source`/`Data.Sink` can work appropriately.
 """
 type Schema
     header::Vector{String}       # column names
@@ -148,15 +91,15 @@ function Base.show(io::IO, schema::Schema)
     end
 end
 
-"Returns the `Data.Schema` for `io`"
-schema(io) = io.schema # by default, we assume the `Source`/`Sink` stores the schema directly
+"Returns the `Data.Schema` for `source_or_sink`"
+schema(source_or_sink) = source_or_sink.schema # by default, we assume the `Source`/`Sink` stores the schema directly
 "Returns the header/column names (if any) associated with a specific `Source` or `Sink`"
-header(io) = header(schema(io))
+header(source_or_sink) = header(schema(source_or_sink))
 "Returns the column types associated with a specific `Source` or `Sink`"
-types(io) = types(schema(io))
+types(source_or_sink) = types(schema(source_or_sink))
 "Returns the (# of rows,# of columns) associated with a specific `Source` or `Sink`"
-Base.size(io::Source) = size(schema(io))
-Base.size(io::Source, i) = size(schema(io),i)
+Base.size(source_or_sink::Source) = size(schema(source_or_sink))
+Base.size(source_or_sink::Source, i) = size(schema(source_or_sink),i)
 setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows; nothing) : nothing
 setcols!(source, cols) = isdefined(source, :schema) ? (source.schema.cols = cols; nothing) : nothing
 
@@ -191,7 +134,7 @@ using DataFrames, NullableArrays, WeakRefStrings
 
 function Data.schema(df::DataFrame)
     return Data.Schema(map(string, names(df)),
-            DataType[eltype(A) <: Nullable ? eltype(eltype(A)) : eltype(A) for A in df.columns], size(df, 1))
+            DataType[eltype(A) for A in df.columns], size(df, 1))
 end
 
 # DataFrame as a Data.Source
@@ -201,22 +144,41 @@ function Data.isdone(source::DataFrame, row, col)
 end
 
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
-Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds v = source[row, col]; return v)
+
+Data.getfield{T}(A::Vector{T}, ::Type{T}, row) = (@inbounds v = A[row]::T; return v)
+Data.getfield{T}(A::Vector{T}, ::Type{Nullable{T}}, row) = (@inbounds v = A[row]::T; return Nullable{T}(v, false))
+
+Data.getfield{T}(A::NullableVector{T}, ::Type{T}, row) = (@inbounds v = A[row]::Nullable{T}; return get(v))
+Data.getfield{T}(A::NullableVector{T}, ::Type{Nullable{T}}, row) = (@inbounds v = A[row]::Nullable{T}; return v)
+
+Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = source.columns[col]; return Data.getfield(A, T, row))
 
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
-Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds c = source.columns[col]; return c)
+
+Data.getcolumn{T}(A::Vector{T}, ::Type{T}) = A
+Data.getcolumn{T}(A::Vector{T}, ::Type{Nullable{T}}) = NullableArray(A, falses(length(A)))
+
+Data.getcolumn{T}(A::NullableVector{T}, ::Type{T}) = sum(A.isnull) == 0 ? A.values : throw(NullException)
+Data.getcolumn{T}(A::NullableVector{T}, ::Type{Nullable{T}}) = A
+
+Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]; return Data.getcolumn(A, T))
 
 # DataFrame as a Data.Sink
 DataFrame{T<:Data.StreamType}(so, ::Type{T}, append, args...) = DataFrame(Data.schema(so), T, Data.reference(so))
+
+allocate{T}(::Type{T}, rows, ref) = Array{T}(rows)
+function allocate{T}(::Type{Nullable{T}}, rows, ref)
+    A = Array{T}(rows)
+    return NullableArray{T, 1}(A, fill(true, rows), isempty(ref) ? UInt8[] : ref)
+end
+
 function DataFrame{T<:Data.StreamType}(sch::Schema, ::Type{T}=Data.Field, ref=UInt8[])
     rows, cols = size(sch)
     rows = T === Data.Column  || rows < 0 ? 0 : rows # don't pre-allocate for Column streaming
     columns = Vector{Any}(cols)
     types = Data.types(sch)
     for i = 1:cols
-        typ = types[i]
-        A = Array{typ}(rows)
-        columns[i] = NullableArray{typ,1}(A, fill(true, rows), isempty(ref) ? UInt8[] : ref)
+        columns[i] = allocate(types[i], rows, ref)
     end
     return DataFrame(columns, map(Symbol, Data.header(sch)))
 end
@@ -247,12 +209,20 @@ end
 
 Data.streamtypes(::Type{DataFrame}) = [Data.Column, Data.Field]
 
-function pushfield!{T}(source, dest::NullableVector{T}, row, col)
+function pushfield!{T}(source, dest::Vector{T}, row, col)
     push!(dest, Data.getfield(source, T, row, col))
+    return
+end
+function pushfield!{T}(source, dest::NullableVector{T}, row, col)
+    push!(dest, Data.getfield(source, Nullable{T}, row, col))
     return
 end
 
 function getfield!{T}(source, dest::NullableVector{T}, row, col, sinkrow)
+    @inbounds dest[sinkrow] = Data.getfield(source, Nullable{T}, row, col)
+    return
+end
+function getfield!{T}(source, dest::Vector{T}, row, col, sinkrow)
     @inbounds dest[sinkrow] = Data.getfield(source, T, row, col)
     return
 end
@@ -284,15 +254,20 @@ function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame, append:
     return sink
 end
 
-function pushcolumn!{T}(source, dest::NullableVector{T}, col)
+function pushcolumn!{T}(source, dest::Vector{T}, col)
     column = Data.getcolumn(source, T, col)
+    append!(dest, column)
+    return length(dest)
+end
+function pushcolumn!{T}(source, dest::NullableVector{T}, col)
+    column = Data.getcolumn(source, Nullable{T}, col)
     append!(dest.values, column.values)
     append!(dest.isnull, column.isnull)
     return length(dest)
 end
 
 function pushcolumn!{T}(source, dest::NullableVector{WeakRefString{T}}, col)
-    column = Data.getcolumn(source, WeakRefString{T}, col)
+    column = Data.getcolumn(source, Nullable{WeakRefString{T}}, col)
     offset = length(dest.values)
     parentoffset = length(dest.parent)
     append!(dest.isnull, column.isnull)
