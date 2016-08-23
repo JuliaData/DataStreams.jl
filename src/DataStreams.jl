@@ -164,7 +164,7 @@ Data.getcolumn{T}(A::NullableVector{T}, ::Type{Nullable{T}}) = A
 Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]; return Data.getcolumn(A, T))
 
 # DataFrame as a Data.Sink
-DataFrame{T<:Data.StreamType}(so, ::Type{T}, append, args...) = DataFrame(Data.schema(so), T, Data.reference(so))
+DataFrame{T<:Data.StreamType}(so, ::Type{T}, append::Bool, args...) = DataFrame(Data.schema(so), T, Data.reference(so))
 
 allocate{T}(::Type{T}, rows, ref) = Array{T}(rows)
 function allocate{T}(::Type{Nullable{T}}, rows, ref)
