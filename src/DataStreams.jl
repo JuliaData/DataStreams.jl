@@ -171,7 +171,7 @@ Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = Data.g
 # DataFrame as a Data.Sink
 DataFrame{T<:Data.StreamType}(so, ::Type{T}, append::Bool, args...) = DataFrame(Data.schema(so), T, Data.reference(so))
 
-function DataFrame{T<:Data.StreamType}(sch::Schema, ::Type{T}=Data.Field, ref=UInt8[])
+function DataFrame{T<:Data.StreamType}(sch::Schema, ::Type{T}=Data.Field, ref::Vector{UInt8}=UInt8[])
     rows, cols = size(sch)
     rows = T === Data.Column || rows < 0 ? 0 : rows # don't pre-allocate for Column streaming
     columns = Vector{Any}(cols)
