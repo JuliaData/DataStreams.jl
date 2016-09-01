@@ -127,11 +127,30 @@ function Data.stream!{T, TT}(source::T, sink::TT, append::Bool)
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
 end
-Data.stream!{T, TT<:Data.Sink}(source::T, sink::TT) = Data.stream!(source, sink, false)
+Data.stream!{T, TT <: Data.Sink}(source::T, sink::TT) = Data.stream!(source, sink, false)
 
 # DataFrames DataStreams definitions
-using DataFrames, NullableArrays, WeakRefStrings
+using DataFrames, NullableArrays, CategoricalArrays, WeakRefStrings
 
+# AbstractColumn definitions
+nullcount(A::NullableVector) = sum(A.isnull)
+nullcount(A::Vector) = 0
+nullcount(A::NominalArray) = 0
+nullcount(A::OrdinalArray) = 0
+nullcount(A::NullableNominalArray) = sum(A.refs .== 0)
+nullcount(A::NullableOrdinalArray) = sum(A.refs .== 0)
+
+allocate{T}(::Type{T}, rows, ref) = Array{T}(rows)
+function allocate{T}(::Type{Nullable{T}}, rows, ref)
+    A = Array{T}(rows)
+    return NullableArray{T, 1}(A, fill(true, rows), isempty(ref) ? UInt8[] : ref)
+end
+allocate{S,R}(::Type{NominalValue{S,R}}, rows, ref) = NominalArray{S,1,R}(rows)
+allocate{S,R}(::Type{OrdinalValue{S,R}}, rows, ref) = OrdinalArray{S,1,R}(rows)
+allocate{S,R}(::Type{Nullable{NominalValue{S,R}}}, rows, ref) = NullableNominalArray{S,1,R}(rows)
+allocate{S,R}(::Type{Nullable{OrdinalValue{S,R}}}, rows, ref) = NullableOrdinalArray{S,1,R}(rows)
+
+# DataFrames DataStreams implementation
 function Data.schema(df::DataFrame)
     return Data.Schema(map(string, names(df)),
             DataType[eltype(A) for A in df.columns], size(df, 1))
@@ -143,38 +162,18 @@ function Data.isdone(source::DataFrame, row, col)
     return row > rows && col > cols
 end
 
+Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
 
-Data.getfield{T}(A::Vector{T}, ::Type{T}, row) = (@inbounds v = A[row]::T; return v)
-Data.getfield{T}(A::Vector{T}, ::Type{Nullable{T}}, row) = (@inbounds v = A[row]::T; return Nullable{T}(v, false))
-
-Data.getfield{T}(A::NullableVector{T}, ::Type{T}, row) = (@inbounds v = A[row]::Nullable{T}; return get(v))
-Data.getfield{T}(A::NullableVector{T}, ::Type{Nullable{T}}, row) = (@inbounds v = A[row]::Nullable{T}; return v)
-
-Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = source.columns[col]; return Data.getfield(A, T, row))
-
-Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
-
-Data.getcolumn{T}(A::Vector{T}, ::Type{T}) = A
-Data.getcolumn{T}(A::Vector{T}, ::Type{Nullable{T}}) = NullableArray(A, falses(length(A)))
-
-Data.getcolumn{T}(A::NullableVector{T}, ::Type{T}) = sum(A.isnull) == 0 ? A.values : throw(NullException)
-Data.getcolumn{T}(A::NullableVector{T}, ::Type{Nullable{T}}) = A
-
-Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]; return Data.getcolumn(A, T))
+Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]; return A)
+Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = Data.getcolumn(source, T, col); return A[row])
 
 # DataFrame as a Data.Sink
 DataFrame{T<:Data.StreamType}(so, ::Type{T}, append::Bool, args...) = DataFrame(Data.schema(so), T, Data.reference(so))
 
-allocate{T}(::Type{T}, rows, ref) = Array{T}(rows)
-function allocate{T}(::Type{Nullable{T}}, rows, ref)
-    A = Array{T}(rows)
-    return NullableArray{T, 1}(A, fill(true, rows), isempty(ref) ? UInt8[] : ref)
-end
-
 function DataFrame{T<:Data.StreamType}(sch::Schema, ::Type{T}=Data.Field, ref=UInt8[])
     rows, cols = size(sch)
-    rows = T === Data.Column  || rows < 0 ? 0 : rows # don't pre-allocate for Column streaming
+    rows = T === Data.Column || rows < 0 ? 0 : rows # don't pre-allocate for Column streaming
     columns = Vector{Any}(cols)
     types = Data.types(sch)
     for i = 1:cols
@@ -182,8 +181,6 @@ function DataFrame{T<:Data.StreamType}(sch::Schema, ::Type{T}=Data.Field, ref=UI
     end
     return DataFrame(columns, map(Symbol, Data.header(sch)))
 end
-
-Base.empty!(A::NullableArray) = (empty!(A.values); empty!(A.isnull); return A)
 
 # given an existing DataFrame (`sink`), make any necessary changes for streaming `source`
 # to it, given we know if we'll be `appending` or not
@@ -209,20 +206,12 @@ end
 
 Data.streamtypes(::Type{DataFrame}) = [Data.Column, Data.Field]
 
-function pushfield!{T}(source, dest::Vector{T}, row, col)
+function pushfield!{T}(source, ::Type{T}, dest, row, col)
     push!(dest, Data.getfield(source, T, row, col))
     return
 end
-function pushfield!{T}(source, dest::NullableVector{T}, row, col)
-    push!(dest, Data.getfield(source, Nullable{T}, row, col))
-    return
-end
 
-function getfield!{T}(source, dest::NullableVector{T}, row, col, sinkrow)
-    @inbounds dest[sinkrow] = Data.getfield(source, Nullable{T}, row, col)
-    return
-end
-function getfield!{T}(source, dest::Vector{T}, row, col, sinkrow)
+function getfield!{T}(source, ::Type{T}, dest, row, col, sinkrow)
     @inbounds dest[sinkrow] = Data.getfield(source, T, row, col)
     return
 end
@@ -232,12 +221,13 @@ function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame, append:
     rows, cols = size(source)
     Data.isdone(source, 0, 0) && return sink
     columns = sink.columns
+    types = Data.types(source)
     if rows == -1
         sinkrows = size(sink, 1)
         row = 1
         while !Data.isdone(source, row, cols+1)
             for col = 1:cols
-                Data.pushfield!(source, columns[col], row, col)
+                Data.pushfield!(source, types[col], columns[col], row, col)
             end
             row += 1
         end
@@ -246,7 +236,7 @@ function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame, append:
         sinkrow = append ? size(sink, 1) - size(source, 1) + 1 : 1
         for row = 1:rows
             for col = 1:cols
-                Data.getfield!(source, columns[col], row, col, sinkrow)
+                Data.getfield!(source, types[col], columns[col], row, col, sinkrow)
             end
             sinkrow += 1
         end
@@ -254,19 +244,13 @@ function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame, append:
     return sink
 end
 
-function pushcolumn!{T}(source, dest::Vector{T}, col)
+function appendcolumn!{T}(source, ::Type{T}, dest, col)
     column = Data.getcolumn(source, T, col)
     append!(dest, column)
     return length(dest)
 end
-function pushcolumn!{T}(source, dest::NullableVector{T}, col)
-    column = Data.getcolumn(source, Nullable{T}, col)
-    append!(dest.values, column.values)
-    append!(dest.isnull, column.isnull)
-    return length(dest)
-end
 
-function pushcolumn!{T}(source, dest::NullableVector{WeakRefString{T}}, col)
+function appendcolumn!{T}(source, ::Type{Nullable{WeakRefString{T}}}, dest, col)
     column = Data.getcolumn(source, Nullable{WeakRefString{T}}, col)
     offset = length(dest.values)
     parentoffset = length(dest.parent)
@@ -290,11 +274,16 @@ function Data.stream!{T}(source::T, ::Type{Data.Column}, sink::DataFrame, append
     rows, cols = size(source)
     Data.isdone(source, 1, 1) && return sink
     columns = sink.columns
+    types = Data.types(source)
     sinkrows = size(sink, 1)
     row = 0
+    for col = 1:cols
+        columns[col] = Data.getcolumn(source, types[col], col)
+    end
+    row = length(columns[1])
     while !Data.isdone(source, row+1, cols+1)
         for col = 1:cols
-            row = Data.pushcolumn!(source, columns[col], col)
+            row = Data.appendcolumn!(source, types[col], columns[col], col)
         end
     end
     Data.setrows!(source, sinkrows + row)
