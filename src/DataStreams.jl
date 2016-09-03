@@ -159,7 +159,7 @@ end
 # DataFrame as a Data.Source
 function Data.isdone(source::DataFrame, row, col)
     rows, cols = size(source)
-    return row > rows && col > cols
+    return row > rows || col > cols
 end
 
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
@@ -219,13 +219,13 @@ end
 function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame, append::Bool=true)
     Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
     rows, cols = size(source)
-    Data.isdone(source, 0, 0) && return sink
+    Data.isdone(source, 1, 1) && return sink
     columns = sink.columns
     types = Data.types(source)
     if rows == -1
         sinkrows = size(sink, 1)
         row = 1
-        while !Data.isdone(source, row, cols+1)
+        while !Data.isdone(source, row, cols)
             for col = 1:cols
                 Data.pushfield!(source, types[col], columns[col], row, col)
             end
@@ -281,7 +281,7 @@ function Data.stream!{T}(source::T, ::Type{Data.Column}, sink::DataFrame, append
         columns[col] = Data.getcolumn(source, types[col], col)
     end
     row = length(columns[1])
-    while !Data.isdone(source, row+1, cols+1)
+    while !Data.isdone(source, row+1, cols)
         for col = 1:cols
             row = Data.appendcolumn!(source, types[col], columns[col], col)
         end
