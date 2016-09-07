@@ -132,6 +132,11 @@ Data.stream!{T, TT <: Data.Sink}(source::T, sink::TT) = Data.stream!(source, sin
 # DataFrames DataStreams definitions
 using DataFrames, NullableArrays, CategoricalArrays, WeakRefStrings
 
+# because there's currently not a better place for this to live
+import Base.==
+=={T}(x::WeakRefString{T}, y::CategoricalArrays.CategoricalValue) = String(x) == String(y)
+=={T}(y::CategoricalArrays.CategoricalValue, x::WeakRefString{T}) = String(x) == String(y)
+
 # AbstractColumn definitions
 nullcount(A::NullableVector) = sum(A.isnull)
 nullcount(A::Vector) = 0
