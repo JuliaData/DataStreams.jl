@@ -170,8 +170,14 @@ end
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
 
-Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]; return A)
-Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = Data.getcolumn(source, T, col); return A[row])
+Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]::Vector{T}; return A)
+Data.getcolumn{T}(source::DataFrame, ::Type{Nullable{T}}, col) = (@inbounds A = source.columns[col]::NullableVector{T}; return A)
+Data.getcolumn{T,R}(source::DataFrame, ::Type{CategoricalArrays.OrdinalValue{T,R}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.OrdinalVector{T,R}; return A)
+Data.getcolumn{T,R}(source::DataFrame, ::Type{CategoricalArrays.NominalValue{T,R}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NominalVector{T,R}; return A)
+Data.getcolumn{T,R}(source::DataFrame, ::Type{Nullable{CategoricalArrays.OrdinalValue{T,R}}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NullableOrdinalVector{T,R}; return A)
+Data.getcolumn{T,R}(source::DataFrame, ::Type{Nullable{CategoricalArrays.NominalValue{T,R}}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NullableNominalVector{T,R}; return A)
+
+Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = Data.getcolumn(source, T, col); return A[row]::T)
 
 # DataFrame as a Data.Sink
 DataFrame{T<:Data.StreamType}(so, ::Type{T}, append::Bool, args...) = DataFrame(Data.schema(so), T, Data.reference(so))
