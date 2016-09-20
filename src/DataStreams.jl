@@ -139,7 +139,7 @@ end
 Data.stream!{T, TT <: Data.Sink}(source::T, sink::TT) = Data.stream!(source, sink, false)
 
 # Generic Data.stream! method for Data.Field
-function Data.stream!(source, ::Type{Data.Field}, sink)
+function Data.stream!{T, TT}(source::T, ::Type{Data.Field}, sink::TT)
     Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
     Data.isdone(source, 1, 1) && return sink
     rows, cols = size(source)
