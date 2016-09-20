@@ -214,14 +214,29 @@
           
           <p><a id='DataStreams.jl-1'></a></p>
 <h1 id="datastreamsjl">DataStreams.jl</h1>
-<p>The <code>DataStreams.jl</code> package aims to define a generic and performant framework for the transfer of "table-like" data. (i.e. data that can, in some sense, be described by rows and columns).</p>
-<p>The framework achieves this by defining a system of <code>Data.Source</code> types and methods to describe how they "provide" data; as well as <code>Data.Sink</code> types and methods around how they "receive" data. This allows <code>Data.Source</code>s and <code>Data.Sink</code>s to implement their interfaces separately, without needing to be aware of each other. The end result is an ecosystem of packages that "automatically" talk with each other, with adding an additional package requiring no additional machinery in existing packages.</p>
+<p>The <code>DataStreams.jl</code> package aims to define a generic and performant framework for the transfer of "table-like" data. (i.e. data that can, at least in some sense, be described by rows and columns).</p>
+<p>The framework achieves this by defining interfaces (i.e. a group of methods) for <code>Data.Source</code> types and methods to describe how they "provide" data; as well as <code>Data.Sink</code> types and methods around how they "receive" data. This allows <code>Data.Source</code>s and <code>Data.Sink</code>s to implement their interfaces separately, without needing to be aware of each other. The end result is an ecosystem of packages that "automatically" talk with each other, with adding an additional package not requiring changes to existing packages.</p>
+<p>Packages can have a single julia type implement both the <code>Data.Source</code> and <code>Data.Sink</code> interfaces, or two separate types can implement them separately. For examples of interface implementations, see some of the packages below:</p>
+<p><code>Data.Source</code> implementations:</p>
+<ul>
+<li><a href="https://github.com/JuliaData/CSV.jl/blob/master/src/Source.jl"><code>CSV.Source</code></a></li>
+<li><a href="https://github.com/JuliaDB/SQLite.jl/blob/master/src/Source.jl"><code>SQLite.Source</code></a></li>
+<li><a href="https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L164"><code>DataFrame</code></a></li>
+<li><a href="https://github.com/JuliaDB/ODBC.jl/blob/master/src/Source.jl"><code>ODBC.Source</code></a></li>
+</ul>
+<p><code>Data.Sink</code> implementations:</p>
+<ul>
+<li><a href="https://github.com/JuliaData/CSV.jl/blob/master/src/Sink.jl"><code>CSV.Sink</code></a></li>
+<li><a href="https://github.com/JuliaDB/SQLite.jl/blob/master/src/Sink.jl"><code>SQLite.Sink</code></a></li>
+<li><a href="https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L182"><code>DataFrame</code></a></li>
+<li><a href="https://github.com/JuliaDB/ODBC.jl/blob/master/src/Sink.jl"><code>ODBC.Sink</code></a></li>
+</ul>
 <p><a id='Data.Source-Interface-1'></a></p>
 <h2 id="datasource-interface"><code>Data.Source</code> Interface</h2>
-<p>The <code>Data.Source</code> interface requires the following definitions, where <code>MyPkg</code> would represent a package wishing to implement the framework:</p>
+<p>The <code>Data.Source</code> interface requires the following definitions, where <code>MyPkg</code> would represent a package wishing to implement the interface:</p>
 <ul>
 <li><code>Data.schema(::MyPkg.Source) =&gt; Data.Schema</code>; get the <code>Data.Schema</code> of a <code>Data.Source</code>. Typically the <code>Source</code> type will store the <code>Data.Schema</code> directly, but this isn't strictly required. See <code>?Data.Schema</code> or docs below for more information on <code>Data.Schema</code></li>
-<li><code>Data.isdone(::MyPkg.Source, row, col) =&gt; Bool</code>; indicates whether the <code>Data.Source</code> will be able to provide data, given a <code>row</code> and <code>col</code>.</li>
+<li><code>Data.isdone(::MyPkg.Source, row, col) =&gt; Bool</code>; indicates whether the <code>Data.Source</code> will be able to provide a value at a given a <code>row</code> and <code>col</code>.</li>
 </ul>
 <p>Optional definition:</p>
 <ul>
@@ -232,7 +247,7 @@
 <li><code>Data.Field</code>: a field is the intersection of a specific row and column; this type of streaming will traverse the "table" structure by row, accessing each column on each row</li>
 <li><code>Data.Column</code>: this type of streaming will provide entire columns at a time</li>
 </ul>
-<p>A <code>Data.Source</code> formally supports field-based streaming by defining the following:</p>
+<p>A <code>Data.Source</code> formally supports <strong>field-based</strong> streaming by defining the following:</p>
 <ul>
 <li><code>Data.streamtype(::Type{MyPkg.Source}, ::Type{Data.Field}) = true</code>; declares that <code>MyPkg.Source</code> supports field-based streaming</li>
 <li><code>Data.getfield{T}(::MyPkg.Source, ::Type{Nullable{T}}, row, col) =&gt; Nullable{T}</code>; returns a value of type <code>Nullable{T}</code> given a specific <code>row</code> and <code>col</code> from <code>MyPkg.Source</code></li>
@@ -255,13 +270,21 @@
 <li><code>MyPkg.Sink{T &lt;: Data.StreamType}(source, ::Type{T}, append::Bool, args...)</code>; given an instance of a <code>Data.Source</code>, the type of streaming <code>T</code>, whether the user desires to append <code>source</code> or not, and any necessary <code>args...</code>, construct an appropriate instance of <code>MyPkg.Sink</code> ready to receive data from <code>source</code>. The <code>append</code> argument allows an already existing sink file/source to "reset" itself if the user does not desire to append.</li>
 <li><code>MyPkg.Sink{T &lt;: Data.StreamType}(sink, source, ::Type{T}, append::Bool)</code>; similar to above, but instead of constructing a new <code>Sink</code>, an existing <code>Sink</code> is given as a first argument, which may be modified before being returned, ready to receive data from <code>source</code>.</li>
 </ul>
-<p>And finally, a <code>Data.Sink</code> needs to implement the meat of the framework, the actual streaming method. For a <code>Sink</code> supporting field-based streaming, the following method should be defined:</p>
+<p>Similar to <code>Data.Source</code>, a <code>Data.Sink</code> also needs to implement it's own <code>stream</code> method that indicates how it receives data.</p>
+<p>A <code>Data.Sink</code> supports <strong>field-based</strong> streaming by optionally defining:</p>
 <ul>
-<li><code>Data.stream!(source, ::Type{Data.Field}, sink::MyPkg.Sink, append::Bool)</code>; given a generic <code>Data.Source</code> (<code>source</code>), continue streaming data until <code>Data.isdone(source, row, col) == true</code>. The streaming method should usually check <code>Data.isdone(source, 1, 1) &amp;&amp; return sink</code> before starting the actual streaming to account for a potentially empty <code>Data.Source</code>. A <code>Data.stream!</code> method has access to the <code>Data.schema(source)</code> (including column types through <code>Data.types(schema)</code>), and should call the <code>Data.getfield</code> to receive data for each column in a row. Currently, most <code>Data.Source</code> types have an internal notion of state, so <code>Data.getfield</code> doesn't guarantee random access and should be called assuming the start of row 1, column 1, proceeding sequentially to column N, then to row 2, and so on. Care should also be taken to appropriately handle potential "missing" fields when the <code>Data.Schema</code> includes <code>Nullable{T}</code> types and the result of <code>Data.getfield</code> is <code>Nullable{T}</code>.</li>
+<li>OPTIONAL: <code>Data.open!(sink::MyPkg.Sink, source)</code>: typically, any necessary <code>Data.Sink</code> setup should be accomplished in it's own constructors (<code>MyPkg.Sink()</code> methods), but there are also cases tied specifically to the streaming process where certain actions need to be taken right before streaming begins. If a <code>Data.Sink</code> needs to perform this kind of action, it can overload <code>Data.open!(sink::MyPkg.Sink, source)</code></li>
+<li>OPTIONAL: <code>Data.cleanup!(sink::MyPkg.Sink)</code>: certain <code>Data.Sink</code>, like databases, may need to protect against inconvenient or dangerous "states" if there happens to be an error while streaming. <code>Data.cleanup!</code> provides the sink a way to rollback a transaction or other kind of cleanup if an error occurs during streaming</li>
+<li>OPTIONAL: <code>Data.flush!(sink::MyPkg.Sink)</code>: similar to <code>Data.open!</code>, a <code>Data.Sink</code> may wish to perform certain actions once the streaming of a single <code>Data.Source</code> has finished. Note however, that a <code>Data.Sink</code> should still be ready to receive more data after a call to <code>Data.stream!</code> has finished. Only once a call to <code>Data.close!(sink)</code> has been made should a sink fully commit/close resources for good.</li>
+<li>OPTIONAL: <code>Data.close!(sink::MyPkg.Sink)</code>: as noted above, <code>Data.close!</code> is defined to allow a sink to fully commit all streaming results and close/destroy any necessary resources.</li>
 </ul>
-<p>And for column-based streaming:</p>
+<p>The only method that is absolutely required is:</p>
 <ul>
-<li><code>Data.stream!(source, ::Type{Data.Column}, sink::MyPkg.Sink, append::Bool)</code>; similar in many ways to field-streaming, column-streaming just means 1+ rows are received on each call to <code>Data.getcolumn</code>. It's best practice to not assume a fixed # of rows when streaming, but rather rely on <code>Data.isdone</code> to ensure all data has been exhausted from the <code>source</code>. As with <code>Data.getfield</code>, care should be taken to account for <code>Data.getcolumn</code> to return either a <code>Vector{T}</code> or <code>NullableVector{T}</code>, depending on the types in <code>Data.schema(source)</code>.</li>
+<li>REQUIRED: <code>Data.streamfield!{T}(sink::MyPkg.Sink, source, ::Type{T}, row, col, cols[, sinkrows])</code>: Given a <code>row</code> and <code>col</code>, a <code>Data.Sink</code> should first call <code>Data.getfield(source, T, row, col)</code> to get the <code>Data.Source</code> value for that <code>row</code> and <code>col</code>, and then store the value appropriately. The type of the value retrieved is given by <code>T</code>, which may be <code>Nullable{T}</code>. Also provided are the total number of columns <code>cols</code> as well as the number of rows a sink began with as <code>sinkrows</code>. These arguments are passed for efficiency since they can be calculated once at the beginning of a <code>Data.stream!</code> and used quickly for many calls to <code>Data.streamfield!</code>.</li>
+</ul>
+<p>A <code>Data.Sink</code> supports <strong>column-based</strong> streaming by defining:</p>
+<ul>
+<li><code>Data.streamcolumn!{T}(sink::MyPkg.Sink, source, ::Type{T}, col, row) =&gt; # of rows streamed</code>: Given a column number <code>col</code>, a <code>Data.Sink</code> should first call <code>Data.getcolumn(source, T, col)</code> to receive the column of data from the <code>Data.Source</code> before storing it appropriately. The type of the column is given by <code>T</code>. Also provided is the number of rows <code>row</code> that have been streamed so far. This method should return the # of rows that were present in the column streamed from <code>Data.Source</code> so that the total # of streamed rows can be tracked accurately.</li>
 </ul>
 <p><a id='Data.Schema-1'></a></p>
 <h2 id="dataschema"><code>Data.Schema</code></h2>
@@ -274,7 +297,7 @@
 <li><code>Data.size(schema)</code> to return the (# of rows, # of columns) in a <code>Data.Schema</code></li>
 </ul>
 <p><code>Data.Source</code> and <code>Data.Sink</code> interfaces both require that <code>Data.schema(source_or_sink)</code> be defined to ensure that other <code>Data.Source</code>/<code>Data.Sink</code> can work appropriately.</p>
-<p><a target='_blank' href='https://github.com/JuliaData/DataStreams.jl/tree/7ef58fbaef1c4bb848b1123f5b6332abc7a4e456/src/DataStreams.jl#L47-L58' class='documenter-source'>source</a><br></p>
+<p><a target='_blank' href='https://github.com/JuliaData/DataStreams.jl/tree/359240329728cdf7d784a78316f8c409ab97a614/src/DataStreams.jl#L13-L24' class='documenter-source'>source</a><br></p>
           <aside class="copyright" role="note">
             
             Documentation built with
