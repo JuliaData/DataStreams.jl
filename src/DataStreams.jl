@@ -9,41 +9,7 @@ if !isdefined(Core, :String)
     typealias String UTF8String
 end
 
-abstract Source
-
-function reset! end
-function isdone end
-reference(x) = UInt8[]
-
-abstract StreamType
-immutable Field <: StreamType end
-immutable Column <: StreamType end
-
-"""
-`Data.streamtype{T<:Data.Source, S<:Data.StreamType}(::Type{T}, ::Type{S})` => Bool
-
-Indicates whether the source `T` supports streaming of type `S`. To be overloaded by individual sources according to supported `Data.StreamType`s
-"""
-function streamtype end
-
-# generic fallback for all Sources
-Data.streamtype{T<:StreamType}(source, ::Type{T}) = false
-
-"""
-`Data.streamtypes{T<:Data.Sink}(::Type{T})` => Vector{StreamType}
-
-Returns a list of `Data.StreamType`s that the sink supports ingesting; the order of elements indicates the sink's streaming preference
-"""
-function streamtypes end
-
-function getfield end
-function getcolumn end
-
-abstract Sink
-
-function stream!
-end
-
+# Data.Schema
 """
 A `Data.Schema` describes a tabular dataset (i.e. a set of optionally named, typed columns with records as rows)
 `Data.Schema` allow `Data.Source` and `Data.Sink` to talk to each other and prepare to provide/receive data through streaming.
@@ -59,7 +25,7 @@ that other `Data.Source`/`Data.Sink` can work appropriately.
 type Schema
     header::Vector{String}       # column names
     types::Vector{DataType}      # Julia types of columns
-    rows::Integer                # number of rows in the dataset
+    rows::Int                    # number of rows in the dataset
     cols::Int                    # number of columns in a dataset
     metadata::Dict{Any, Any}     # for any other metadata we'd like to keep around (not used for '==' operation)
     function Schema(header::Vector, types::Vector{DataType}, rows::Integer=0, metadata::Dict=Dict())
@@ -91,17 +57,60 @@ function Base.show(io::IO, schema::Schema)
     end
 end
 
-"Returns the `Data.Schema` for `source_or_sink`"
-schema(source_or_sink) = source_or_sink.schema # by default, we assume the `Source`/`Sink` stores the schema directly
-"Returns the header/column names (if any) associated with a specific `Source` or `Sink`"
+# Data.Source / Data.Sink
+abstract Source
+
+function reset! end
+function isdone end
+reference(x) = UInt8[]
+
+function getfield end
+function getcolumn end
+
+abstract Sink
+
+open!(sink, source) = nothing
+function streamfield! end
+streamfield!{T}(sink, source, ::Type{T}, row, col, cols, sinkrows) = streamfield!(sink, source, T, row, col, cols)
+cleanup!(sink) = nothing
+flush!(sink) = nothing
+close!(sink) = nothing
+
+function streamcolumn! end
+
+abstract StreamType
+immutable Field <: StreamType end
+immutable Column <: StreamType end
+
+"""
+`Data.streamtype{T<:Data.Source, S<:Data.StreamType}(::Type{T}, ::Type{S})` => Bool
+
+Indicates whether the source `T` supports streaming of type `S`. To be overloaded by individual sources according to supported `Data.StreamType`s
+"""
+function streamtype end
+
+# generic fallback for all Sources
+Data.streamtype{T<:StreamType}(source, ::Type{T}) = false
+
+"""
+`Data.streamtypes{T<:Data.Sink}(::Type{T})` => Vector{StreamType}
+
+Returns a list of `Data.StreamType`s that the sink is able to receive; the order of elements indicates the sink's streaming preference
+"""
+function streamtypes end
+
+schema(source_or_sink) = isdefined(source_or_sink, :schema) ? deepcopy(source_or_sink.schema) : throw(ArgumentError("unable to get schema of $source_or_sink"))
 header(source_or_sink) = header(schema(source_or_sink))
-"Returns the column types associated with a specific `Source` or `Sink`"
 types(source_or_sink) = types(schema(source_or_sink))
-"Returns the (# of rows,# of columns) associated with a specific `Source` or `Sink`"
-Base.size(source_or_sink::Source) = size(schema(source_or_sink))
-Base.size(source_or_sink::Source, i) = size(schema(source_or_sink),i)
+Base.size(source::Source) = size(schema(source))
+Base.size(source::Source, i) = size(schema(source),i)
+Base.size(sink::Sink) = size(schema(sink))
+Base.size(sink::Sink, i) = size(schema(sink),i)
 setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows; nothing) : nothing
 setcols!(source, cols) = isdefined(source, :schema) ? (source.schema.cols = cols; nothing) : nothing
+
+# Data.stream!
+function stream! end
 
 # generic definitions
 function Data.stream!{T, TT}(source::T, ::Type{TT}, append::Bool, args...)
@@ -109,7 +118,7 @@ function Data.stream!{T, TT}(source::T, ::Type{TT}, append::Bool, args...)
     for typ in typs
         if Data.streamtype(T, typ)
             sink = TT(source, typ, append, args...)
-            return Data.stream!(source, typ, sink, append)
+            return Data.stream!(source, typ, sink)
         end
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
@@ -122,12 +131,46 @@ function Data.stream!{T, TT}(source::T, sink::TT, append::Bool)
     for typ in typs
         if Data.streamtype(T, typ)
             sink = TT(sink, source, typ, append)
-            return Data.stream!(source, typ, sink, append)
+            return Data.stream!(source, typ, sink)
         end
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $typs"))
 end
 Data.stream!{T, TT <: Data.Sink}(source::T, sink::TT) = Data.stream!(source, sink, false)
+
+# Generic Data.stream! method for Data.Field
+function Data.stream!(source, ::Type{Data.Field}, sink)
+    Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
+    Data.isdone(source, 1, 1) && return sink
+    rows, cols = size(source)
+    sinkrows = max(0, size(sink, 1) - rows)
+    types = Data.types(source)
+    row = 1
+    Data.open!(sink, source)
+    try
+        if rows == -1
+            while true
+                for col = 1:cols
+                    @inbounds T = types[col]
+                    Data.streamfield!(sink, source, T, row, col, cols)
+                end
+                row += 1
+                Data.isdone(source, row, cols) && break
+            end
+            Data.setrows!(source, row - 1)
+        else
+            for row = 1:rows, col = 1:cols
+                @inbounds T = types[col]
+                Data.streamfield!(sink, source, T, row, col, cols, sinkrows)
+            end
+        end
+    catch e
+        Data.cleanup!(sink)
+        rethrow(e)
+    end
+    Data.flush!(sink)
+    return sink
+end
 
 # DataFrames DataStreams definitions
 using DataFrames, NullableArrays, CategoricalArrays, WeakRefStrings
@@ -217,42 +260,18 @@ end
 
 Data.streamtypes(::Type{DataFrame}) = [Data.Column, Data.Field]
 
-function pushfield!{T}(source, ::Type{T}, dest, row, col)
-    push!(dest, Data.getfield(source, T, row, col))
-    return
+function Data.streamfield!{T}(sink::DataFrame, source, ::Type{T}, row, col, cols)
+    push!(sink.columns[col], Data.getfield(source, T, row, col))
+    return nothing
 end
 
-function getfield!{T}(source, ::Type{T}, dest, row, col, sinkrow)
-    @inbounds dest[sinkrow] = Data.getfield(source, T, row, col)
-    return
+function streamfield{T}(dest, ::Type{T}, row, val)
+    @inbounds dest[row] = val
+    return nothing
 end
-
-function Data.stream!{T}(source::T, ::Type{Data.Field}, sink::DataFrame, append::Bool=true)
-    Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
-    rows, cols = size(source)
-    Data.isdone(source, 1, 1) && return sink
-    columns = sink.columns
-    types = Data.types(source)
-    if rows == -1
-        sinkrows = size(sink, 1)
-        row = 1
-        while !Data.isdone(source, row, cols)
-            for col = 1:cols
-                Data.pushfield!(source, types[col], columns[col], row, col)
-            end
-            row += 1
-        end
-        Data.setrows!(source, sinkrows + row)
-    else
-        sinkrow = append ? size(sink, 1) - size(source, 1) + 1 : 1
-        for row = 1:rows
-            for col = 1:cols
-                Data.getfield!(source, types[col], columns[col], row, col, sinkrow)
-            end
-            sinkrow += 1
-        end
-    end
-    return sink
+function Data.streamfield!{T}(sink::DataFrame, source, ::Type{T}, row, col, cols, sinkrows)
+    streamfield(sink.columns[col], T, sinkrows + row, Data.getfield(source, T, row, col))
+    return nothing
 end
 
 function appendcolumn!{T}(source, ::Type{T}, dest, col)
@@ -280,24 +299,32 @@ function appendcolumn!{T}(source, ::Type{Nullable{WeakRefString{T}}}, dest, col)
     return length(dest)
 end
 
-function Data.stream!{T}(source::T, ::Type{Data.Column}, sink::DataFrame, append::Bool=true)
-    Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
+function Data.streamcolumn!{T}(sink::DataFrame, source, ::Type{T}, col, row)
+    if row == 0
+        sink.columns[col] = Data.getcolumn(source, T, col)
+        len = length(sink.columns[col])
+    else
+        len = appendcolumn!(source, T, sink.columns[col], col)
+    end
+    return len
+end
+
+function Data.stream!{T}(source::T, ::Type{Data.Column}, sink)
+    Data.types(source) == Data.types(sink) || throw(ArgumentError("\n\nschema mismatch: \n\nSOURCE: $(Data.schema(source))\n\nvs.\n\nSINK: $(Data.schema(sink))"))
     rows, cols = size(source)
     Data.isdone(source, 1, 1) && return sink
-    columns = sink.columns
     types = Data.types(source)
-    sinkrows = size(sink, 1)
-    row = 0
+    row = cur_row = 0
     for col = 1:cols
-        columns[col] = Data.getcolumn(source, types[col], col)
+        row = Data.streamcolumn!(sink, source, types[col], col, row)
     end
-    row = length(columns[1])
     while !Data.isdone(source, row+1, cols)
         for col = 1:cols
-            row = Data.appendcolumn!(source, types[col], columns[col], col)
+            cur_row = Data.streamcolumn!(sink, source, types[col], col, row)
         end
+        row += cur_row
     end
-    Data.setrows!(source, sinkrows + row)
+    Data.setrows!(source, row)
     return sink
 end
 

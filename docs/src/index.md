@@ -1,15 +1,29 @@
 # DataStreams.jl
 
-The `DataStreams.jl` package aims to define a generic and performant framework for the transfer of "table-like" data. (i.e. data that can, in some sense, be described by rows and columns).
+The `DataStreams.jl` package aims to define a generic and performant framework for the transfer of "table-like" data. (i.e. data that can, at least in some sense, be described by rows and columns).
 
-The framework achieves this by defining a system of `Data.Source` types and methods to describe how they "provide" data; as well as `Data.Sink` types and methods around how they "receive" data. This allows `Data.Source`s and `Data.Sink`s to implement their interfaces separately, without needing to be aware of each other. The end result is an ecosystem of packages that "automatically" talk with each other, with adding an additional package requiring no additional machinery in existing packages.
+The framework achieves this by defining interfaces (i.e. a group of methods) for `Data.Source` types and methods to describe how they "provide" data; as well as `Data.Sink` types and methods around how they "receive" data. This allows `Data.Source`s and `Data.Sink`s to implement their interfaces separately, without needing to be aware of each other. The end result is an ecosystem of packages that "automatically" talk with each other, with adding an additional package not requiring changes to existing packages.
+
+Packages can have a single julia type implement both the `Data.Source` and `Data.Sink` interfaces, or two separate types can implement them separately. For examples of interface implementations, see some of the packages below:
+
+`Data.Source` implementations:
+  * [`CSV.Source`](https://github.com/JuliaData/CSV.jl/blob/master/src/Source.jl)
+  * [`SQLite.Source`](https://github.com/JuliaDB/SQLite.jl/blob/master/src/Source.jl)
+  * [`DataFrame`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L164)
+  * [`ODBC.Source`](https://github.com/JuliaDB/ODBC.jl/blob/master/src/Source.jl)
+
+`Data.Sink` implementations:
+  * [`CSV.Sink`](https://github.com/JuliaData/CSV.jl/blob/master/src/Sink.jl)
+  * [`SQLite.Sink`](https://github.com/JuliaDB/SQLite.jl/blob/master/src/Sink.jl)
+  * [`DataFrame`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L182)
+  * [`ODBC.Sink`](https://github.com/JuliaDB/ODBC.jl/blob/master/src/Sink.jl)
 
 ## `Data.Source` Interface
 
-The `Data.Source` interface requires the following definitions, where `MyPkg` would represent a package wishing to implement the framework:
+The `Data.Source` interface requires the following definitions, where `MyPkg` would represent a package wishing to implement the interface:
 
   * `Data.schema(::MyPkg.Source) => Data.Schema`; get the `Data.Schema` of a `Data.Source`. Typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required. See `?Data.Schema` or docs below for more information on `Data.Schema`
-  * `Data.isdone(::MyPkg.Source, row, col) => Bool`; indicates whether the `Data.Source` will be able to provide data, given a `row` and `col`.
+  * `Data.isdone(::MyPkg.Source, row, col) => Bool`; indicates whether the `Data.Source` will be able to provide a value at a given a `row` and `col`.
 
 Optional definition:
 
@@ -20,7 +34,7 @@ A `Data.Source` also needs to "register" the type (or types) of streaming it sup
   * `Data.Field`: a field is the intersection of a specific row and column; this type of streaming will traverse the "table" structure by row, accessing each column on each row
   * `Data.Column`: this type of streaming will provide entire columns at a time
 
-A `Data.Source` formally supports field-based streaming by defining the following:
+A `Data.Source` formally supports **field-based** streaming by defining the following:
 
   * `Data.streamtype(::Type{MyPkg.Source}, ::Type{Data.Field}) = true`; declares that `MyPkg.Source` supports field-based streaming
   * `Data.getfield{T}(::MyPkg.Source, ::Type{Nullable{T}}, row, col) => Nullable{T}`; returns a value of type `Nullable{T}` given a specific `row` and `col` from `MyPkg.Source`
@@ -43,13 +57,22 @@ A `Data.Sink` should also implement specific forms of constructors that allow co
   * `MyPkg.Sink{T <: Data.StreamType}(source, ::Type{T}, append::Bool, args...)`; given an instance of a `Data.Source`, the type of streaming `T`, whether the user desires to append `source` or not, and any necessary `args...`, construct an appropriate instance of `MyPkg.Sink` ready to receive data from `source`. The `append` argument allows an already existing sink file/source to "reset" itself if the user does not desire to append.
   * `MyPkg.Sink{T <: Data.StreamType}(sink, source, ::Type{T}, append::Bool)`; similar to above, but instead of constructing a new `Sink`, an existing `Sink` is given as a first argument, which may be modified before being returned, ready to receive data from `source`.
 
-And finally, a `Data.Sink` needs to implement the meat of the framework, the actual streaming method. For a `Sink` supporting field-based streaming, the following method should be defined:
+Similar to `Data.Source`, a `Data.Sink` also needs to implement it's own `stream` method that indicates how it receives data.
 
-  * `Data.stream!(source, ::Type{Data.Field}, sink::MyPkg.Sink, append::Bool)`; given a generic `Data.Source` (`source`), continue streaming data until `Data.isdone(source, row, col) == true`. The streaming method should usually check `Data.isdone(source, 1, 1) && return sink` before starting the actual streaming to account for a potentially empty `Data.Source`. A `Data.stream!` method has access to the `Data.schema(source)` (including column types through `Data.types(schema)`), and should call the `Data.getfield` to receive data for each column in a row. Currently, most `Data.Source` types have an internal notion of state, so `Data.getfield` doesn't guarantee random access and should be called assuming the start of row 1, column 1, proceeding sequentially to column N, then to row 2, and so on. Care should also be taken to appropriately handle potential "missing" fields when the `Data.Schema` includes `Nullable{T}` types and the result of `Data.getfield` is `Nullable{T}`.
+A `Data.Sink` supports **field-based** streaming by optionally defining:
 
-And for column-based streaming:
+  * OPTIONAL: `Data.open!(sink::MyPkg.Sink, source)`: typically, any necessary `Data.Sink` setup should be accomplished in it's own constructors (`MyPkg.Sink()` methods), but there are also cases tied specifically to the streaming process where certain actions need to be taken right before streaming begins. If a `Data.Sink` needs to perform this kind of action, it can overload `Data.open!(sink::MyPkg.Sink, source)`
+  * OPTIONAL: `Data.cleanup!(sink::MyPkg.Sink)`: certain `Data.Sink`, like databases, may need to protect against inconvenient or dangerous "states" if there happens to be an error while streaming. `Data.cleanup!` provides the sink a way to rollback a transaction or other kind of cleanup if an error occurs during streaming
+  * OPTIONAL: `Data.flush!(sink::MyPkg.Sink)`: similar to `Data.open!`, a `Data.Sink` may wish to perform certain actions once the streaming of a single `Data.Source` has finished. Note however, that a `Data.Sink` should still be ready to receive more data after a call to `Data.stream!` has finished. Only once a call to `Data.close!(sink)` has been made should a sink fully commit/close resources for good.
+  * OPTIONAL: `Data.close!(sink::MyPkg.Sink)`: as noted above, `Data.close!` is defined to allow a sink to fully commit all streaming results and close/destroy any necessary resources.
 
-  * `Data.stream!(source, ::Type{Data.Column}, sink::MyPkg.Sink, append::Bool)`; similar in many ways to field-streaming, column-streaming just means 1+ rows are received on each call to `Data.getcolumn`. It's best practice to not assume a fixed # of rows when streaming, but rather rely on `Data.isdone` to ensure all data has been exhausted from the `source`. As with `Data.getfield`, care should be taken to account for `Data.getcolumn` to return either a `Vector{T}` or `NullableVector{T}`, depending on the types in `Data.schema(source)`.
+The only method that is absolutely required is:
+
+  * REQUIRED: `Data.streamfield!{T}(sink::MyPkg.Sink, source, ::Type{T}, row, col, cols[, sinkrows])`: Given a `row` and `col`, a `Data.Sink` should first call `Data.getfield(source, T, row, col)` to get the `Data.Source` value for that `row` and `col`, and then store the value appropriately. The type of the value retrieved is given by `T`, which may be `Nullable{T}`. Also provided are the total number of columns `cols` as well as the number of rows a sink began with as `sinkrows`. These arguments are passed for efficiency since they can be calculated once at the beginning of a `Data.stream!` and used quickly for many calls to `Data.streamfield!`.
+
+A `Data.Sink` supports **column-based** streaming by defining:
+
+  * `Data.streamcolumn!{T}(sink::MyPkg.Sink, source, ::Type{T}, col, row) => # of rows streamed`: Given a column number `col`, a `Data.Sink` should first call `Data.getcolumn(source, T, col)` to receive the column of data from the `Data.Source` before storing it appropriately. The type of the column is given by `T`. Also provided is the number of rows `row` that have been streamed so far. This method should return the # of rows that were present in the column streamed from `Data.Source` so that the total # of streamed rows can be tracked accurately.
 
 ## `Data.Schema`
 
