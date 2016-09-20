@@ -183,20 +183,16 @@ import Base.==
 # AbstractColumn definitions
 nullcount(A::NullableVector) = sum(A.isnull)
 nullcount(A::Vector) = 0
-nullcount(A::NominalArray) = 0
-nullcount(A::OrdinalArray) = 0
-nullcount(A::NullableNominalArray) = sum(A.refs .== 0)
-nullcount(A::NullableOrdinalArray) = sum(A.refs .== 0)
+nullcount(A::CategoricalArray) = 0
+nullcount(A::NullableCategoricalArray) = sum(A.refs .== 0)
 
 allocate{T}(::Type{T}, rows, ref) = Array{T}(rows)
 function allocate{T}(::Type{Nullable{T}}, rows, ref)
     A = Array{T}(rows)
     return NullableArray{T, 1}(A, fill(true, rows), isempty(ref) ? UInt8[] : ref)
 end
-allocate{S,R}(::Type{NominalValue{S,R}}, rows, ref) = NominalArray{S,1,R}(rows)
-allocate{S,R}(::Type{OrdinalValue{S,R}}, rows, ref) = OrdinalArray{S,1,R}(rows)
-allocate{S,R}(::Type{Nullable{NominalValue{S,R}}}, rows, ref) = NullableNominalArray{S,1,R}(rows)
-allocate{S,R}(::Type{Nullable{OrdinalValue{S,R}}}, rows, ref) = NullableOrdinalArray{S,1,R}(rows)
+allocate{S,R}(::Type{CategoricalValue{S,R}}, rows, ref) = CategoricalArray{S,1,R}(rows)
+allocate{S,R}(::Type{Nullable{CategoricalValue{S,R}}}, rows, ref) = NullableCategoricalArray{S,1,R}(rows)
 
 # DataFrames DataStreams implementation
 function Data.schema(df::DataFrame)
@@ -215,10 +211,8 @@ Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
 
 Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]::Vector{T}; return A)
 Data.getcolumn{T}(source::DataFrame, ::Type{Nullable{T}}, col) = (@inbounds A = source.columns[col]::NullableVector{T}; return A)
-Data.getcolumn{T,R}(source::DataFrame, ::Type{CategoricalArrays.OrdinalValue{T,R}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.OrdinalVector{T,R}; return A)
-Data.getcolumn{T,R}(source::DataFrame, ::Type{CategoricalArrays.NominalValue{T,R}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NominalVector{T,R}; return A)
-Data.getcolumn{T,R}(source::DataFrame, ::Type{Nullable{CategoricalArrays.OrdinalValue{T,R}}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NullableOrdinalVector{T,R}; return A)
-Data.getcolumn{T,R}(source::DataFrame, ::Type{Nullable{CategoricalArrays.NominalValue{T,R}}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NullableNominalVector{T,R}; return A)
+Data.getcolumn{T,R}(source::DataFrame, ::Type{CategoricalArrays.CategoricalValue{T,R}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.CategoricalVector{T,R}; return A)
+Data.getcolumn{T,R}(source::DataFrame, ::Type{Nullable{CategoricalArrays.CategoricalValue{T,R}}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NullableCategoricalVector{T,R}; return A)
 
 Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = Data.getcolumn(source, T, col); return A[row]::T)
 
