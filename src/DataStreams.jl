@@ -214,8 +214,8 @@ Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
 
 Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]; return A)
 Data.getcolumn{T}(source::DataFrame, ::Type{Nullable{T}}, col) = (@inbounds A = source.columns[col]::NullableVector{T}; return A)
-Data.getcolumn{T,R}(source::DataFrame, ::Type{CategoricalArrays.CategoricalValue{T,R}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.CategoricalVector{T,R}; return A)
-Data.getcolumn{T,R}(source::DataFrame, ::Type{Nullable{CategoricalArrays.CategoricalValue{T,R}}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NullableCategoricalVector{T,R}; return A)
+Data.getcolumn{T,R}(source::DataFrame, ::Type{CategoricalValue{T,R}}, col) = (@inbounds A = source.columns[col]::CategoricalVector{T,R}; return A)
+Data.getcolumn{T,R}(source::DataFrame, ::Type{Nullable{CategoricalValue{T,R}}}, col) = (@inbounds A = source.columns[col]::NullableCategoricalVector{T,R}; return A)
 
 Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = Data.getcolumn(source, T, col); return A[row]::T)
 
