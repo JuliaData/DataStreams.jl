@@ -139,7 +139,7 @@ end
 Data.stream!{T, TT <: Data.Sink}(source::T, sink::TT) = Data.stream!(source, sink, false)
 
 # Generic Data.stream! method for Data.Field
-function Data.stream!{T, TT}(source::T, ::Type{Data.Field}, sink::TT)
+function Data.stream!{T1, T2}(source::T1, ::Type{Data.Field}, sink::T2)
     Data.types(source) == Data.types(sink) || throw(ArgumentError("schema mismatch: \n$(Data.schema(source))\nvs.\n$(Data.schema(sink))"))
     Data.isdone(source, 1, 1) && return sink
     rows, cols = size(source)
@@ -185,6 +185,9 @@ nullcount(A::NullableVector) = sum(A.isnull)
 nullcount(A::Vector) = 0
 nullcount(A::CategoricalArray) = 0
 nullcount(A::NullableCategoricalArray) = sum(A.refs .== 0)
+if isdefined(Main, :DataArray)
+    nullcount(A::DataArray) = sum(A.na)
+end
 
 allocate{T}(::Type{T}, rows, ref) = Array{T}(rows)
 function allocate{T}(::Type{Nullable{T}}, rows, ref)
@@ -209,7 +212,7 @@ end
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
 
-Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]::Vector{T}; return A)
+Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]; return A)
 Data.getcolumn{T}(source::DataFrame, ::Type{Nullable{T}}, col) = (@inbounds A = source.columns[col]::NullableVector{T}; return A)
 Data.getcolumn{T,R}(source::DataFrame, ::Type{CategoricalArrays.CategoricalValue{T,R}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.CategoricalVector{T,R}; return A)
 Data.getcolumn{T,R}(source::DataFrame, ::Type{Nullable{CategoricalArrays.CategoricalValue{T,R}}}, col) = (@inbounds A = source.columns[col]::CategoricalArrays.NullableCategoricalVector{T,R}; return A)
