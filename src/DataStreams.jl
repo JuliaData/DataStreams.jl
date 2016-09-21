@@ -194,8 +194,8 @@ function allocate{T}(::Type{Nullable{T}}, rows, ref)
     A = Array{T}(rows)
     return NullableArray{T, 1}(A, fill(true, rows), isempty(ref) ? UInt8[] : ref)
 end
-allocate{S,R}(::Type{CategoricalValue{S,R}}, rows, ref) = CategoricalArray{S,1,R}(rows)
-allocate{S,R}(::Type{Nullable{CategoricalValue{S,R}}}, rows, ref) = NullableCategoricalArray{S,1,R}(rows)
+allocate{S,R}(::Type{CategoricalArrays.CategoricalValue{S,R}}, rows, ref) = CategoricalArray{S,1,R}(rows)
+allocate{S,R}(::Type{Nullable{CategoricalArrays.CategoricalValue{S,R}}}, rows, ref) = NullableCategoricalArray{S,1,R}(rows)
 
 # DataFrames DataStreams implementation
 function Data.schema(df::DataFrame)
