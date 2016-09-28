@@ -123,7 +123,7 @@ function schema{S <: StreamType}(source, ::Type{S})
     sch = Data.schema(source)
     T = streamtype(sch)
     T == S && return sch
-    types = [transform(TT, S) for TT in sch.types]
+    types = DataType[transform(TT, S) for TT in sch.types]
     return Schema(S, Data.header(sch), types, size(sch, 1), sch.metadata)
 end
 
