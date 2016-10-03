@@ -221,14 +221,14 @@
 <ul>
 <li><a href="https://github.com/JuliaData/CSV.jl/blob/master/src/Source.jl"><code>CSV.Source</code></a></li>
 <li><a href="https://github.com/JuliaDB/SQLite.jl/blob/master/src/Source.jl"><code>SQLite.Source</code></a></li>
-<li><a href="https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L164"><code>DataFrame</code></a></li>
+<li><a href="https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L251"><code>DataFrame</code></a></li>
 <li><a href="https://github.com/JuliaDB/ODBC.jl/blob/master/src/Source.jl"><code>ODBC.Source</code></a></li>
 </ul>
 <p><code>Data.Sink</code> implementations:</p>
 <ul>
 <li><a href="https://github.com/JuliaData/CSV.jl/blob/master/src/Sink.jl"><code>CSV.Sink</code></a></li>
 <li><a href="https://github.com/JuliaDB/SQLite.jl/blob/master/src/Sink.jl"><code>SQLite.Sink</code></a></li>
-<li><a href="https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L182"><code>DataFrame</code></a></li>
+<li><a href="https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L287"><code>DataFrame</code></a></li>
 <li><a href="https://github.com/JuliaDB/ODBC.jl/blob/master/src/Sink.jl"><code>ODBC.Sink</code></a></li>
 </ul>
 <p><a id='Data.Source-Interface-1'></a></p>
@@ -241,6 +241,7 @@
 <p>Optional definition:</p>
 <ul>
 <li><code>Data.reference(::MyPkg.Source) =&gt; Vector{UInt8}</code>; Sometimes, a <code>Source</code> needs the <code>Sink</code> to keep a reference to memory to keep a data structure valid. A <code>Source</code> can implement this method to return a <code>Vector{UInt8}</code> that the <code>Sink</code> will need to handle appropriately.</li>
+<li><code>Base.size(::MyPkg.Source[, i]) =&gt; Int</code>; not explicitly required to enable data-streaming, but a <code>Source</code> should generally be able to describe its first 2 dimensions, i.e. # of rows and columns.</li>
 </ul>
 <p>A <code>Data.Source</code> also needs to "register" the type (or types) of streaming it supports. Currently defined streaming types in the DataStreams framework include:</p>
 <ul>
@@ -250,14 +251,14 @@
 <p>A <code>Data.Source</code> formally supports <strong>field-based</strong> streaming by defining the following:</p>
 <ul>
 <li><code>Data.streamtype(::Type{MyPkg.Source}, ::Type{Data.Field}) = true</code>; declares that <code>MyPkg.Source</code> supports field-based streaming</li>
-<li><code>Data.getfield{T}(::MyPkg.Source, ::Type{Nullable{T}}, row, col) =&gt; Nullable{T}</code>; returns a value of type <code>Nullable{T}</code> given a specific <code>row</code> and <code>col</code> from <code>MyPkg.Source</code></li>
-<li><code>Data.getfield{T}(::MyPkg.Source, ::Type{T}, row, col) =&gt; T</code>; returns a value of type <code>T</code> given a specific <code>row</code> and <code>col</code> from <code>MyPkg.Source</code></li>
+<li><code>Data.streamfrom{T}(::MyPkg.Source, ::Type{Data.Field}, ::Type{Nullable{T}}, row, col) =&gt; Nullable{T}</code>; returns a value of type <code>Nullable{T}</code> given a specific <code>row</code> and <code>col</code> from <code>MyPkg.Source</code></li>
+<li><code>Data.streamfrom{T}(::MyPkg.Source, ::Type{Data.Field}, ::Type{T}, row, col) =&gt; T</code>; returns a value of type <code>T</code> given a specific <code>row</code> and <code>col</code> from <code>MyPkg.Source</code></li>
 </ul>
 <p>And for column-based streaming:</p>
 <ul>
 <li><code>Data.streamtype(::Type{MyPkg.Source}, ::Type{Data.Column}) = true</code></li>
-<li><code>Data.getcolumn{T}(::Data.Source, ::Type{T}, col) =&gt; Vector{T}</code>; Given a type <code>T</code>, returns column # <code>col</code> of a <code>Data.Source</code> as a <code>Vector{T}</code></li>
-<li><code>Data.getcolumn{T}(::Data.Source, ::Type{Nullable{T}}, col) =&gt; NullableVector{T}</code>; Given a type <code>Nullable{T}</code>, returns column # <code>col</code> of a <code>Data.Source</code> as a <code>NullableVector{T}</code></li>
+<li><code>Data.streamfrom{T}(::Data.Source, ::Type{Data.Column}, ::Type{T}, col) =&gt; Vector{T}</code>; Given a type <code>T</code>, returns column # <code>col</code> of a <code>Data.Source</code> as a <code>Vector{T}</code></li>
+<li><code>Data.streamfrom{T}(::Data.Source, ::Type{Data.Column}, ::Type{Nullable{T}}, col) =&gt; NullableVector{T}</code>; Given a type <code>Nullable{T}</code>, returns column # <code>col</code> of a <code>Data.Source</code> as a <code>NullableVector{T}</code></li>
 </ul>
 <p><a id='Data.Sink-Interface-1'></a></p>
 <h2 id="datasink-interface"><code>Data.Sink</code> Interface</h2>
@@ -265,26 +266,25 @@
 <ul>
 <li><code>Data.streamtypes(::Type{MyPkg.Sink}) = [Data.Field[, Data.Column]]</code>; "registers" the streaming preferences for <code>MyPkg.Sink</code>. A <code>Sink</code> type should list the stream type or types it supports. If the <code>Sink</code> supports streaming of multiple types, it should list them in order of preference (i.e. the more natural or performant type first).</li>
 </ul>
-<p>A <code>Data.Sink</code> should also implement specific forms of constructors that allow convenience in many higher-level streaming functions:</p>
+<p>A <code>Data.Sink</code> needs to also implement specific forms of constructors that ensure proper Sink state in many higher-level streaming functions:</p>
 <ul>
-<li><code>MyPkg.Sink{T &lt;: Data.StreamType}(source, ::Type{T}, append::Bool, args...)</code>; given an instance of a <code>Data.Source</code>, the type of streaming <code>T</code>, whether the user desires to append <code>source</code> or not, and any necessary <code>args...</code>, construct an appropriate instance of <code>MyPkg.Sink</code> ready to receive data from <code>source</code>. The <code>append</code> argument allows an already existing sink file/source to "reset" itself if the user does not desire to append.</li>
-<li><code>MyPkg.Sink{T &lt;: Data.StreamType}(sink, source, ::Type{T}, append::Bool)</code>; similar to above, but instead of constructing a new <code>Sink</code>, an existing <code>Sink</code> is given as a first argument, which may be modified before being returned, ready to receive data from <code>source</code>.</li>
+<li><code>MyPkg.Sink{T &lt;: Data.StreamType}(schema::Data.Schema, ::Type{T}, append::Bool, ref::Vector{UInt8}, args...; kwargs...)</code>; given a <code>schema::Data.Schema</code> a source will be providing, the type of streaming <code>T</code> (<code>Field</code> or <code>Column</code>), whether the user desires to append the data or not, a possible memory reference <code>ref</code> and any necessary <code>args...</code> and <code>kwargs...</code>, construct an appropriate instance of <code>MyPkg.Sink</code> ready to receive data from <code>source</code>. The <code>append</code> argument allows an already existing sink file/source to "reset" itself if the user does not desire to append.</li>
+<li><code>MyPkg.Sink{T &lt;: Data.StreamType}(sink, schema::Data.Schema, ::Type{T}, append::Bool, ref::Vector{UInt8})</code>; similar to above, but instead of constructing a new <code>Sink</code>, an existing <code>Sink</code> is given as a first argument, which may be modified before being returned, ready to receive data according to the <code>Data.Source</code> <code>schema</code>.</li>
 </ul>
-<p>Similar to <code>Data.Source</code>, a <code>Data.Sink</code> also needs to implement it's own <code>stream</code> method that indicates how it receives data.</p>
-<p>A <code>Data.Sink</code> supports <strong>field-based</strong> streaming by optionally defining:</p>
+<p>Similar to <code>Data.Source</code>, a <code>Data.Sink</code> also needs to implement it's own <code>streamto!</code> method that indicates how it receives data.</p>
+<p>A <code>Data.Sink</code> supports <strong>field-based</strong> streaming by defining:</p>
 <ul>
-<li>OPTIONAL: <code>Data.open!(sink::MyPkg.Sink, source)</code>: typically, any necessary <code>Data.Sink</code> setup should be accomplished in it's own constructors (<code>MyPkg.Sink()</code> methods), but there are also cases tied specifically to the streaming process where certain actions need to be taken right before streaming begins. If a <code>Data.Sink</code> needs to perform this kind of action, it can overload <code>Data.open!(sink::MyPkg.Sink, source)</code></li>
-<li>OPTIONAL: <code>Data.cleanup!(sink::MyPkg.Sink)</code>: certain <code>Data.Sink</code>, like databases, may need to protect against inconvenient or dangerous "states" if there happens to be an error while streaming. <code>Data.cleanup!</code> provides the sink a way to rollback a transaction or other kind of cleanup if an error occurs during streaming</li>
-<li>OPTIONAL: <code>Data.flush!(sink::MyPkg.Sink)</code>: similar to <code>Data.open!</code>, a <code>Data.Sink</code> may wish to perform certain actions once the streaming of a single <code>Data.Source</code> has finished. Note however, that a <code>Data.Sink</code> should still be ready to receive more data after a call to <code>Data.stream!</code> has finished. Only once a call to <code>Data.close!(sink)</code> has been made should a sink fully commit/close resources for good.</li>
-<li>OPTIONAL: <code>Data.close!(sink::MyPkg.Sink)</code>: as noted above, <code>Data.close!</code> is defined to allow a sink to fully commit all streaming results and close/destroy any necessary resources.</li>
+<li><code>Data.streamto!{T}(sink::MyPkg.Sink, ::Type{Data.Field}, val::T, row, col[, schema])</code>: Given a <code>row</code>, <code>col</code>, and <code>val::T</code> a <code>Data.Sink</code> should store the value appropriately. The type of the value retrieved is given by <code>T</code>, which may be <code>Nullable{T}</code>. Optionally provided is the <code>schema</code> (the same <code>schema</code> that is passed in the <code>MyPkg.Sink(schema, ...)</code> constructors). This argument is passed for efficiency since</li>
 </ul>
-<p>The only method that is absolutely required is:</p>
-<ul>
-<li>REQUIRED: <code>Data.streamfield!{T}(sink::MyPkg.Sink, source, ::Type{T}, row, col, cols[, sinkrows])</code>: Given a <code>row</code> and <code>col</code>, a <code>Data.Sink</code> should first call <code>Data.getfield(source, T, row, col)</code> to get the <code>Data.Source</code> value for that <code>row</code> and <code>col</code>, and then store the value appropriately. The type of the value retrieved is given by <code>T</code>, which may be <code>Nullable{T}</code>. Also provided are the total number of columns <code>cols</code> as well as the number of rows a sink began with as <code>sinkrows</code>. These arguments are passed for efficiency since they can be calculated once at the beginning of a <code>Data.stream!</code> and used quickly for many calls to <code>Data.streamfield!</code>.</li>
-</ul>
+<p>it can be calculated once at the beginning of a <code>Data.stream!</code> and used quickly for many calls to <code>Data.streamto!</code>. This argument is optional, because a Sink can overload <code>Data.streamto!</code> with or without it.</p>
 <p>A <code>Data.Sink</code> supports <strong>column-based</strong> streaming by defining:</p>
+<pre><code>* `Data.streamto!{T}(sink::MyPkg.Sink, ::Type{Data.Column}, column::Type{T}, row, col[, schema])`: Given a column number `col` and column of data `column`, a `Data.Sink` should store it appropriately. The type of the column is given by `T`, which may be a `NullableVector{T}`. Optionally provided is the `schema` (the same `schema` that is passed in the `MyPkg.Sink(schema, ...)` constructors). This argument is passed for efficiency since it can be calculated once at the beginning of a `Data.stream!` and used quickly for many calls to `Data.streamto!`. This argument is optional, because a Sink can overload `Data.streamto!` with or without it.
+</code></pre>
+
+<p>A <code>Data.Sink</code> can optionally define the following if needed:</p>
 <ul>
-<li><code>Data.streamcolumn!{T}(sink::MyPkg.Sink, source, ::Type{T}, col, row) =&gt; # of rows streamed</code>: Given a column number <code>col</code>, a <code>Data.Sink</code> should first call <code>Data.getcolumn(source, T, col)</code> to receive the column of data from the <code>Data.Source</code> before storing it appropriately. The type of the column is given by <code>T</code>. Also provided is the number of rows <code>row</code> that have been streamed so far. This method should return the # of rows that were present in the column streamed from <code>Data.Source</code> so that the total # of streamed rows can be tracked accurately.</li>
+<li><code>Data.cleanup!(sink::MyPkg.Sink)</code>: certain <code>Data.Sink</code>, like databases, may need to protect against inconvenient or dangerous "states" if there happens to be an error while streaming. <code>Data.cleanup!</code> provides the sink a way to rollback a transaction or other kind of cleanup if an error occurs during streaming</li>
+<li><code>Data.close!(sink::MyPkg.Sink)</code>: during the <code>Data.stream!</code> workflow, a <code>Data.Sink</code> should remain "open" to receiving data until <code>Data.close!</code> is call explicitly. <code>Data.close!</code> is defined to allow a sink to fully commit all streaming results and close/destroy any necessary resources.</li>
 </ul>
 <p><a id='Data.Schema-1'></a></p>
 <h2 id="dataschema"><code>Data.Schema</code></h2>
@@ -299,7 +299,7 @@
 <li><code>Data.size(schema)</code> to return the (# of rows, # of columns) in a <code>Data.Schema</code></li>
 </ul>
 <p><code>Data.Source</code> and <code>Data.Sink</code> interfaces both require that <code>Data.schema(source_or_sink)</code> be defined to ensure that other <code>Data.Source</code>/<code>Data.Sink</code> can work appropriately.</p>
-<p><a target='_blank' href='https://github.com/JuliaData/DataStreams.jl/tree/a1640baddecaf2ecb407a6473d855efbb7833b4e/src/DataStreams.jl#L17-L30' class='documenter-source'>source</a><br></p>
+<p><a target='_blank' href='https://github.com/JuliaData/DataStreams.jl/tree/53521cb03de5e24ab9b509e05eac49b58dce7aaf/src/DataStreams.jl#L17-L30' class='documenter-source'>source</a><br></p>
           <aside class="copyright" role="note">
             
             Documentation built with
