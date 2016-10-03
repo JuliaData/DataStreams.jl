@@ -87,8 +87,6 @@ transform(sch::Data.Schema, transforms::Dict{String,Function}) = transform(sch, 
 abstract Source
 
 # Required methods
-# size(source)
-# size(source, i)
 function schema end
 function isdone end
 """
@@ -217,7 +215,8 @@ end
 
 function streamto!{T, TT}(sink, ::Type{Data.Column}, source, ::Type{T}, ::Type{TT}, row, col, sch, f)
     column = f(Data.streamfrom(source, Data.Column, T, col)::T)::TT
-    return streamto!(sink, Data.Column, column, row, col, sch)
+    streamto!(sink, Data.Column, column, row, col, sch)
+    return length(column)
 end
 
 function Data.stream!{T1, T2}(source::T1, ::Type{Data.Column}, sink::T2, source_schema, sink_schema, transforms)
@@ -328,7 +327,7 @@ function Data.streamto!{T}(sink::DataFrame, ::Type{Data.Column}, column::T, row,
     else
         append!(sink.columns[col]::T, column)
     end
-    return length(column)
+    return nothing
 end
 
 function Base.append!{T}(dest::NullableVector{WeakRefString{T}}, column::NullableVector{WeakRefString{T}})
