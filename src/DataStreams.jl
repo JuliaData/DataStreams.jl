@@ -15,12 +15,12 @@ immutable Column <: StreamType end
 
 # Data.Schema
 """
-A `Data.Schema{T}` describes a tabular dataset (i.e. a set of optionally named, typed columns with records as rows)
+A `Data.Schema` describes a tabular dataset (i.e. a set of optionally named, typed columns with records as rows)
 
 `Data.Schema` allow `Data.Source` and `Data.Sink` to talk to each other and prepare to provide/receive data through streaming.
 `Data.Schema` fields include:
 
- * a type parameter `{T}` that indicates the `Data.StreamType` of the `Data.Schema`
+ * A boolean type parameter that indicates whether the # of rows is known in the `Data.Source`; this is useful as a type parameter to allow `Data.Sink` and `Data.streamto!` methods to dispatch. Note that the sentinel value `-1` is used as the # of rows when the # of rows is unknown.
  * `Data.header(schema)` to return the header/column names in a `Data.Schema`
  * `Data.types(schema)` to return the column types in a `Data.Schema`; `Nullable{T}` indicates columns that may contain missing data (null values)
  * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`
@@ -28,7 +28,7 @@ A `Data.Schema{T}` describes a tabular dataset (i.e. a set of optionally named, 
 `Data.Source` and `Data.Sink` interfaces both require that `Data.schema(source_or_sink)` be defined to ensure
 that other `Data.Source`/`Data.Sink` can work appropriately.
 """
-type Schema{T <: StreamType}
+type Schema{RowsAreKnown}
     header::Vector{String}       # column names
     types::Vector{DataType}      # Julia types of columns
     rows::Int                    # number of rows in the dataset
@@ -37,25 +37,30 @@ type Schema{T <: StreamType}
     index::Dict{String,Int}      # maps column names as Strings to their index # in `header` and `types`
 end
 
-function Schema{T <: StreamType}(::Type{T}, header::Vector, types::Vector{DataType}, rows::Integer=0, metadata::Dict=Dict())
+function Schema(header::Vector, types::Vector{DataType}, rows::Integer=0, metadata::Dict=Dict())
+    rows < -1 && throw(ArgumentError("Invalid # of rows for Schema; use -1 to indicate an unknown # of rows"))
     cols = length(header)
     cols != length(types) && throw(ArgumentError("length(header): $(length(header)) must == length(types): $(length(types))"))
     header = String[string(x) for x in header]
-    return Schema{T}(header, types, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header)))
+    return Schema{rows > -1}(header, types, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header)))
 end
 
-Schema{T <: StreamType}(::Type{T}, types::Vector{DataType}, rows::Integer=0, meta::Dict=Dict()) = Schema(T, String["Column$i" for i = 1:length(types)], types, rows, meta)
-Schema() = Schema(Field, String[], DataType[], 0, Dict())
+Schema(types::Vector{DataType}, rows::Integer=0, meta::Dict=Dict()) = Schema(String["Column$i" for i = 1:length(types)], types, rows, meta)
+Schema() = Schema(String[], DataType[], 0, Dict())
 
 header(sch::Schema) = sch.header
 types(sch::Schema) = sch.types
 Base.size(sch::Schema) = (sch.rows, sch.cols)
 Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
 
+header(source_or_sink) = header(schema(source_or_sink))
+types{T <: StreamType}(source_or_sink, ::Type{T}=Field) = types(schema(source_or_sink, T))
+setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows; nothing) : nothing
+
 Base.getindex(sch::Schema, col::String) = sch.index[col]
 
-function Base.show{T}(io::IO, schema::Schema{T})
-    println(io, "Data.Schema{$T}:")
+function Base.show{b}(io::IO, schema::Schema{b})
+    println(io, "Data.Schema{$(b)}:")
     println(io, "rows: $(schema.rows)\tcols: $(schema.cols)")
     if schema.cols <= 0
         println(io)
@@ -65,25 +70,7 @@ function Base.show{T}(io::IO, schema::Schema{T})
     end
 end
 
-# Data.Source / Data.Sink
-abstract Source
-
-function reset! end
-function isdone end
-reference(x) = UInt8[]
-
-function getfield end
-function getcolumn end
-
-abstract Sink
-
-cleanup!(sink) = nothing
-close!(sink) = nothing
-
-function streamfield! end
-function streamcolumn! end
-
-function transform{S, F}(sch::Data.Schema{S}, transforms::Dict{Int,F})
+function transform(sch::Data.Schema, transforms::Dict{Int,Function})
     types = Data.types(sch)
     newtypes = similar(types)
     transforms2 = Array{Function}(length(types))
@@ -92,48 +79,64 @@ function transform{S, F}(sch::Data.Schema{S}, transforms::Dict{Int,F})
         newtypes[i] = Core.Inference.return_type(f, (T,))
         transforms2[i] = f
     end
-    return Schema(S, Data.header(sch), newtypes, size(sch, 1), sch.metadata), transforms2
+    return Schema(Data.header(sch), newtypes, size(sch, 1), sch.metadata), transforms2
 end
-transform{F}(sch::Data.Schema, transforms::Dict{String,F}) = transform(sch, Dict(sch[x]=>f for (x,f) in transforms))
+transform(sch::Data.Schema, transforms::Dict{String,Function}) = transform(sch, Dict(sch[x]=>f for (x,f) in transforms))
 
+# Data.Source Interface
+abstract Source
+
+# Required methods
+# size(source)
+# size(source, i)
+function schema end
+function isdone end
 """
 `Data.streamtype{T<:Data.Source, S<:Data.StreamType}(::Type{T}, ::Type{S})` => Bool
 
 Indicates whether the source `T` supports streaming of type `S`. To be overloaded by individual sources according to supported `Data.StreamType`s
 """
 function streamtype end
+function streamfrom end
 
-# generic fallback for all Sources
-Data.streamtype{T<:StreamType}(source, ::Type{T}) = false
+# Optional method
+function reference end
 
+# Generic fallbacks
+Base.size(s::Source) = size(schema(s, Data.Field))
+Base.size(s::Source, i) = size(schema(s, Data.Field), i)
+schema(source) = schema(source, Data.Field)
+function schema(source, ::Type{Data.Field})
+    sch = Data.schema(source, Data.Column)
+    types = DataType[eltype(TT) for TT in Data.types(sch)]
+    return Schema(Data.header(sch), types, size(sch, 1), sch.metadata)
+end
+Data.streamtype{T <: StreamType}(source, ::Type{T}) = false
+reference(x) = UInt8[]
+#TODO: fallback for streamfrom for Nullables
+
+# Data.Sink Interface
+abstract Sink
+
+# Required methods
+# Sink(sch::Data.Schema, S, append, ref, args...; kwargs...)
+# Sink(sink, sch::Data.Schema, S, append, ref)
 """
 `Data.streamtypes{T<:Data.Sink}(::Type{T})` => Vector{StreamType}
 
 Returns a list of `Data.StreamType`s that the sink is able to receive; the order of elements indicates the sink's streaming preference
 """
 function streamtypes end
+function streamto! end
 
-streamtype{T}(sch::Schema{T}) = T
+# Optional methods
+function cleanup! end
+function close! end
 
-transform{T <: AbstractVector}(::Type{T}, ::Type{Data.Column}) = T
-transform{T <: AbstractVector}(::Type{T}, ::Type{Data.Field}) = eltype(T)
-transform{T, S}(::Type{T}, ::Type{S}) = T
+# Generic fallbacks
+cleanup!(sink) = nothing
+close!(sink) = nothing
 
-function schema{S <: StreamType}(source, ::Type{S})
-    sch = Data.schema(source)
-    T = streamtype(sch)
-    T == S && return sch
-    types = DataType[transform(TT, S) for TT in sch.types]
-    return Schema(S, Data.header(sch), types, size(sch, 1), sch.metadata)
-end
-
-schema(source) = isdefined(source, :schema) ? source.schema : throw(ArgumentError("can't get Data.Schema of $source"))
-header(source_or_sink) = header(schema(source_or_sink))
-types{T <: StreamType}(source_or_sink, ::Type{T}=Field) = types(schema(source_or_sink, T))
-Base.size(source_or_sink::Union{Source,Sink}) = size(schema(source_or_sink))
-Base.size(source_or_sink::Union{Source,Sink}, i) = size(schema(source_or_sink),i)
-setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows; nothing) : nothing
-setcols!(source, cols) = isdefined(source, :schema) ? (source.schema.cols = cols; nothing) : nothing
 
 # Data.stream!
 function stream! end
@@ -143,9 +146,10 @@ function Data.stream!{So, Si}(source::So, ::Type{Si}, append::Bool, transforms::
     sinkstreamtypes = Data.streamtypes(Si)
     for sinkstreamtype in sinkstreamtypes
         if Data.streamtype(So, sinkstreamtype)
-            transformed_schema, transforms2 = transform(Data.schema(source, sinkstreamtype), transforms)
-            sink = Si(transformed_schema, sinkstreamtype, append, reference(source), args...; kwargs...)
-            return Data.stream!(source, sinkstreamtype, sink, transforms2)
+            source_schema = Data.schema(source, sinkstreamtype)
+            sink_schema, transforms2 = transform(source_schema, transforms)
+            sink = Si(sink_schema, sinkstreamtype, append, reference(source), args...; kwargs...)
+            return Data.stream!(source, sinkstreamtype, sink, source_schema, sink_schema, transforms2)
         end
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
@@ -157,46 +161,31 @@ function Data.stream!{So, Si}(source::So, sink::Si, append::Bool=false, transfor
     sinkstreamtypes = Data.streamtypes(Si)
     for sinkstreamtype in sinkstreamtypes
         if Data.streamtype(So, sinkstreamtype)
-            transformed_schema, transforms2 = transform(Data.schema(source, sinkstreamtype), transforms)
-            sink = Si(sink, transformed_schema, sinkstreamtype, append, reference(source))
-            return Data.stream!(source, sinkstreamtype, sink, transforms2)
+            source_schema = Data.schema(source, sinkstreamtype)
+            sink_schema, transforms2 = transform(source_schema, transforms)
+            sink = Si(sink, sink_schema, sinkstreamtype, append, reference(source))
+            return Data.stream!(source, sinkstreamtype, sink, source_schema, sink_schema, transforms2)
         end
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
 end
 
-function stream!{T, TT}(::Type{Data.Field}, sink, source, ::Type{T}, ::Type{TT}, row, col, cols, f, push)
-    val = f(Data.getfield(source, T, row, col)::T)::TT
-    return stream!(sink, Data.Field, val, row, col, cols, push)
+function streamto!{T, TT}(sink, ::Type{Data.Field}, source, ::Type{T}, ::Type{TT}, row, col, sch, f)
+    val = f(Data.streamfrom(source, Data.Field, T, row, col)::T)::TT
+    return Data.streamto!(sink, Data.Field, val, row, col, sch)
 end
-function stream!{T, TT}(::Type{Data.Field}, sink, source, ::Type{T}, ::Type{TT}, row, col, cols, f)
-    val = f(Data.getfield(source, T, row, col)::T)::TT
-    return stream!(sink, Data.Field, val, row, col, cols)
-end
-stream!{T <: StreamType}(sink, ::Type{T}, val, row, col, cols, push) = stream!(sink, T, val, row, col, cols)
+streamto!{T <: StreamType}(sink, ::Type{T}, val, row, col, sch) = streamto!(sink, T, val, row, col)
 
 # Generic Data.stream! method for Data.Field
-function Data.stream!{T1, T2}(source::T1, ::Type{Data.Field}, sink::T2, transforms)
+function Data.stream!{T1, T2}(source::T1, ::Type{Data.Field}, sink::T2, source_schema::Schema{true}, sink_schema, transforms)
     Data.isdone(source, 1, 1) && return sink
-    rows, cols = size(source)
-    sinkrows = max(0, size(sink, 1) - rows)
-    sourcetypes = Data.types(source)
-    sinktypes = Data.types(sink)
-    row = 1
+    rows, cols = size(source_schema)
+    sinkrows = max(0, size(sink_schema, 1) - rows)
+    sourcetypes = Data.types(source_schema)
+    sinktypes = Data.types(sink_schema)
     try
-        if rows == -1
-            while true
-                @inbounds for col = 1:cols
-                    Data.stream!(Data.Field, sink, source, sourcetypes[col], sinktypes[col], row, col, cols, transforms[col], true)
-                end
-                row += 1
-                Data.isdone(source, row, cols) && break
-            end
-            Data.setrows!(source, row - 1)
-        else
-            @inbounds for row = 1:rows, col = 1:cols
-                Data.stream!(Data.Field, sink, source, sourcetypes[col], sinktypes[col], sinkrows + row, col, cols, transforms[col])
-            end
+        @inbounds for row = 1:rows, col = 1:cols
+            Data.streamto!(sink, Data.Field, source, sourcetypes[col], sinktypes[col], sinkrows + row, col, sink_schema, transforms[col])
         end
     catch e
         Data.cleanup!(sink)
@@ -204,32 +193,55 @@ function Data.stream!{T1, T2}(source::T1, ::Type{Data.Field}, sink::T2, transfor
     end
     return sink
 end
-
-function stream!{T, TT}(::Type{Data.Column}, sink, source, ::Type{T}, ::Type{TT}, row, col, cols, f, push)
-    column = f(Data.getcolumn(source, T, col)::T)::TT
-    return stream!(sink, Data.Column, column, row, col, cols, push)
-end
-function stream!{T, TT}(::Type{Data.Column}, sink, source, ::Type{T}, ::Type{TT}, row, col, cols, f)
-    column = f(Data.getcolumn(source, T, col)::T)::TT
-    return stream!(sink, Data.Column, column, row, col, cols)
-end
-
-function Data.stream!{T1, T2}(source::T1, ::Type{Data.Column}, sink::T2, transforms)
-    rows, cols = size(source)
+function Data.stream!{T1, T2}(source::T1, ::Type{Data.Field}, sink::T2, source_schema::Schema{false}, sink_schema, transforms)
     Data.isdone(source, 1, 1) && return sink
-    sourcetypes = Data.types(source, Data.Column)
-    sinktypes = Data.types(sink, Data.Column)
-    row = cur_row = 0
-    @inbounds for col = 1:cols
-        row = Data.stream!(Data.Column, sink, source, sourcetypes[col], sinktypes[col], cur_row, col, cols, transforms[col])
-    end
-    while !Data.isdone(source, row+1, cols)
-        @inbounds for col = 1:cols
-            cur_row = Data.stream!(Data.Column, sink, source, sourcetypes[col], sinktypes[col], row, col, cols, transforms[col], true)
+    rows, cols = size(source_schema)
+    sourcetypes = Data.types(source_schema)
+    sinktypes = Data.types(sink_schema)
+    row = 1
+    try
+        while true
+            @inbounds for col = 1:cols
+                Data.streamto!(sink, Data.Field, source, sourcetypes[col], sinktypes[col], row, col, sink_schema, transforms[col])
+            end
+            row += 1
+            Data.isdone(source, row, cols) && break
         end
-        row += cur_row
+        Data.setrows!(source, row - 1)
+    catch e
+        Data.cleanup!(sink)
+        rethrow(e)
     end
-    Data.setrows!(source, row)
+    return sink
+end
+
+function streamto!{T, TT}(sink, ::Type{Data.Column}, source, ::Type{T}, ::Type{TT}, row, col, sch, f)
+    column = f(Data.streamfrom(source, Data.Column, T, col)::T)::TT
+    return streamto!(sink, Data.Column, column, row, col, sch)
+end
+
+function Data.stream!{T1, T2}(source::T1, ::Type{Data.Column}, sink::T2, source_schema, sink_schema, transforms)
+    Data.isdone(source, 1, 1) && return sink
+    rows, cols = size(source_schema)
+    sinkrows = max(0, size(sink_schema, 1) - rows)
+    sourcetypes = Data.types(source_schema)
+    sinktypes = Data.types(sink_schema)
+    row = cur_row = 0
+    try
+        @inbounds for col = 1:cols
+            row = Data.streamto!(sink, Data.Column, source, sourcetypes[col], sinktypes[col], sinkrows + cur_row, col, sink_schema, transforms[col])
+        end
+        while !Data.isdone(source, row+1, cols)
+            @inbounds for col = 1:cols
+                cur_row = Data.streamto!(sink, Data.Column, source, sourcetypes[col], sinktypes[col], sinkrows + row, col, sink_schema, transforms[col])
+            end
+            row += cur_row
+        end
+        Data.setrows!(source, row)
+    catch e
+        Data.cleanup!(sink)
+        rethrow(e)
+    end
     return sink
 end
 
@@ -237,8 +249,8 @@ end
 using DataFrames, NullableArrays, CategoricalArrays, WeakRefStrings
 
 # DataFrames DataStreams implementation
-function Data.schema(df::DataFrame)
-    return Data.Schema(Data.Column, map(string, names(df)),
+function Data.schema(df::DataFrame, ::Type{Data.Column})
+    return Data.Schema(map(string, names(df)),
             DataType[typeof(A) for A in df.columns], size(df, 1))
 end
 
@@ -251,9 +263,9 @@ end
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Column}) = true
 Data.streamtype(::Type{DataFrame}, ::Type{Data.Field}) = true
 
-Data.getcolumn{T <: AbstractVector}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]::T; return A)
-Data.getcolumn{T}(source::DataFrame, ::Type{T}, col) = (@inbounds A = source.columns[col]; return A)
-Data.getfield{T}(source::DataFrame, ::Type{T}, row, col) = (@inbounds A = Data.getcolumn(source, T, col); return A[row]::T)
+Data.streamfrom{T <: AbstractVector}(source::DataFrame, ::Type{Data.Column}, ::Type{T}, col) = (@inbounds A = source.columns[col]::T; return A)
+Data.streamfrom{T}(source::DataFrame, ::Type{Data.Column}, ::Type{T}, col) = (@inbounds A = source.columns[col]; return A)
+Data.streamfrom{T}(source::DataFrame, ::Type{Data.Field}, ::Type{T}, row, col) = (@inbounds A = Data.streamfrom(source, Data.Column, T, col); return A[row]::T)
 
 # DataFrame as a Data.Sink
 allocate{T}(::Type{T}, rows, ref) = Array{T}(rows)
@@ -272,9 +284,9 @@ if isdefined(Main, :DataArray)
     allocate{T}(::Type{DataVector{T}}, rows, ref) = DataArray{T}(rows)
 end
 
-function DataFrame{T <: Data.StreamType}(sch::Data.Schema, ::Type{T}=Data.Field, append::Bool=false, ref::Vector{UInt8}=UInt8[])
+function DataFrame{T <: Data.StreamType}(sch::Data.Schema, ::Type{T}=Data.Field, append::Bool=false, ref::Vector{UInt8}=UInt8[], args...)
     rows, cols = size(sch)
-    rows = max(0, T === Data.Column ? 0 : rows) # don't pre-allocate for Column streaming
+    rows = max(0, T <: Data.Column ? 0 : rows) # don't pre-allocate for Column streaming
     columns = Vector{Any}(cols)
     types = Data.types(sch)
     for i = 1:cols
@@ -287,34 +299,35 @@ end
 # with Data.Schema `sch` to it, given we know if we'll be `appending` or not
 function DataFrame(sink, sch::Data.Schema, ::Type{Field}, append::Bool, ref::Vector{UInt8})
     rows, cols = size(sch)
-    foreach(x->resize!(x, max(0, rows + (append ? size(sink, 1) : 0))), sink.columns)
+    newsize = max(0, rows + (append ? size(sink, 1) : 0))
+    foreach(x->resize!(x, newsize), sink.columns)
+    sch.rows = newsize
     return sink
 end
 function DataFrame(sink, sch::Schema, ::Type{Column}, append::Bool, ref::Vector{UInt8})
     rows, cols = size(sch)
-    !append && foreach(empty!, sink.columns)
+    append ? (sch.rows += size(sink, 1)) : foreach(empty!, sink.columns)
     return sink
 end
 
 Data.streamtypes(::Type{DataFrame}) = [Data.Column, Data.Field]
 
-Data.stream!{T}(sink::DataFrame, ::Type{Data.Field}, val::T, row, col, cols, push::Bool) = push!(sink.columns[col]::Vector{T}, val)
-Data.stream!{T}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{T}, row, col, cols, push::Bool) = push!(sink.columns[col]::NullableVector{T}, val)
-Data.stream!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::CategoricalValue{T, R}, row, col, cols, push::Bool) = push!(sink.columns[col]::CategoricalVector{T, R}, val)
-Data.stream!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{CategoricalValue{T, R}}, row, col, cols, push::Bool) = push!(sink.columns[col]::NullableCategoricalVector{T, R}, val)
+Data.streamto!{T}(sink::DataFrame, ::Type{Data.Field}, val::T, row, col, sch::Data.Schema{false}) = push!(sink.columns[col]::Vector{T}, val)
+Data.streamto!{T}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{T}, row, col, sch::Data.Schema{false}) = push!(sink.columns[col]::NullableVector{T}, val)
+Data.streamto!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::CategoricalValue{T, R}, row, col, sch::Data.Schema{false}) = push!(sink.columns[col]::CategoricalVector{T, R}, val)
+Data.streamto!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{CategoricalValue{T, R}}, row, col, sch::Data.Schema{false}) = push!(sink.columns[col]::NullableCategoricalVector{T, R}, val)
 
-Data.stream!{T}(sink::DataFrame, ::Type{Data.Field}, val::T, row, col, cols) = (sink.columns[col]::Vector{T})[row] = val
-Data.stream!{T}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{T}, row, col, cols) = (sink.columns[col]::NullableVector{T})[row] = val
-Data.stream!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::CategoricalValue{T, R}, row, col, cols) = (sink.columns[col]::CategoricalVector{T, R})[row] = val
-Data.stream!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{CategoricalValue{T, R}}, row, col, cols) = (sink.columns[col]::NullableCategoricalVector{T, R})[row] = val
+Data.streamto!{T}(sink::DataFrame, ::Type{Data.Field}, val::T, row, col, sch::Data.Schema{true}) = (sink.columns[col]::Vector{T})[row] = val
+Data.streamto!{T}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{T}, row, col, sch::Data.Schema{true}) = (sink.columns[col]::NullableVector{T})[row] = val
+Data.streamto!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::CategoricalValue{T, R}, row, col, sch::Data.Schema{true}) = (sink.columns[col]::CategoricalVector{T, R})[row] = val
+Data.streamto!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{CategoricalValue{T, R}}, row, col, sch::Data.Schema{true}) = (sink.columns[col]::NullableCategoricalVector{T, R})[row] = val
 
-function Data.stream!{T}(sink::DataFrame, ::Type{Data.Column}, column::T, row, col, cols)
-    sink.columns[col] = column
-    return length(column)
-end
-
-function Data.stream!{T}(sink::DataFrame, ::Type{Data.Column}, column::T, row, col, cols, push::Bool)
-    append!(sink.columns[col]::T, column)
+function Data.streamto!{T}(sink::DataFrame, ::Type{Data.Column}, column::T, row, col, sch::Data.Schema)
+    if row == 0
+        sink.columns[col] = column
+    else
+        append!(sink.columns[col]::T, column)
+    end
     return length(column)
 end
 
