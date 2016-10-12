@@ -299,7 +299,16 @@ end
 function DataFrame(sink, sch::Data.Schema, ::Type{Field}, append::Bool, ref::Vector{UInt8})
     rows, cols = size(sch)
     newsize = max(0, rows + (append ? size(sink, 1) : 0))
-    foreach(x->resize!(x, newsize, sch, ref), sink.columns)
+    # need to make sure we don't break a NullableVector{WeakRefString{UInt8}} when appending
+    if append
+        for (i, T) in enumerate(Data.types(sch))
+            if T <: Nullable{WeakRefString{UInt8}}
+                sink.columns[i] = NullableArray(String[string(get(x, "")) for x in sink.columns[i]])
+                sch.types[i] = Nullable{String}
+            end
+        end
+    end
+    foreach(x->resize!(x, newsize), sink.columns)
     sch.rows = newsize
     return sink
 end
@@ -318,6 +327,7 @@ Data.streamto!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{Categori
 
 Data.streamto!{T}(sink::DataFrame, ::Type{Data.Field}, val::T, row, col, sch::Data.Schema{true}) = (sink.columns[col]::Vector{T})[row] = val
 Data.streamto!{T}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{T}, row, col, sch::Data.Schema{true}) = (sink.columns[col]::NullableVector{T})[row] = val
+Data.streamto!(sink::DataFrame, ::Type{Data.Field}, val::Nullable{WeakRefString{UInt8}}, row, col, sch::Data.Schema{true}) = (sink.columns[col][row] = val)
 Data.streamto!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::CategoricalValue{T, R}, row, col, sch::Data.Schema{true}) = (sink.columns[col]::CategoricalVector{T, R})[row] = val
 Data.streamto!{T, R}(sink::DataFrame, ::Type{Data.Field}, val::Nullable{CategoricalValue{T, R}}, row, col, sch::Data.Schema{true}) = (sink.columns[col]::NullableCategoricalVector{T, R})[row] = val
 
@@ -344,25 +354,6 @@ function Base.append!{T}(dest::NullableVector{WeakRefString{T}}, column::Nullabl
     for i = 1:length(column)
         old = column.values[i]
         dest.values[offset + i] = WeakRefString{T}(pointer(dest.parent, parentoffset + old.ind), old.len, parentoffset + old.ind)
-    end
-    return length(dest)
-end
-
-Base.resize!(vec, newsize, sch, ref) = resize!(vec, newsize)
-
-function Base.resize!{T}(dest::NullableVector{WeakRefString{T}}, newsize::Int, sch, ref::Vector{UInt8})
-    oldsize = length(dest)
-    oldparentsize = length(dest.parent)
-    # resizing `dest` would invalid all existing WeakRefString pointers
-    resize!(dest.values, newsize)
-    resize!(dest.isnull, newsize)
-    append!(dest.parent, ref)
-    for i = 1:oldsize
-        old = dest.values[i]
-        dest.values[i] = WeakRefString{T}(pointer(dest.parent, old.ind), old.len, old.ind)
-    end
-    if haskey(sch.metadata, "CSV.Source")
-        sch.metadata["CSV.Source"].ptr = Int(pointer(dest.parent, oldparentsize + 1))
     end
     return length(dest)
 end
