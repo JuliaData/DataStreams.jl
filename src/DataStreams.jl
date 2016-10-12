@@ -362,7 +362,7 @@ function Base.resize!{T}(dest::NullableVector{WeakRefString{T}}, newsize::Int, s
         dest.values[i] = WeakRefString{T}(pointer(dest.parent, old.ind), old.len, old.ind)
     end
     if haskey(sch.metadata, "CSV.Source")
-        sch.metadata["CSV.Source"].ptr = pointer(dest.parent, oldparentsize + 1)
+        sch.metadata["CSV.Source"].ptr = Int(pointer(dest.parent, oldparentsize + 1))
     end
     return length(dest)
 end
