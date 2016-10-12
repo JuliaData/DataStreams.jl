@@ -87,6 +87,8 @@ transform(sch::Data.Schema, transforms::Dict{String,Function}) = transform(sch, 
 abstract Source
 
 # Required methods
+# size(source)
+# size(source, i)
 function schema end
 function isdone end
 """
@@ -135,7 +137,6 @@ function close! end
 cleanup!(sink) = nothing
 close!(sink) = nothing
 
-
 # Data.stream!
 function stream! end
 
@@ -169,7 +170,7 @@ function Data.stream!{So, Si}(source::So, sink::Si, append::Bool=false, transfor
 end
 
 function streamto!{T, TT}(sink, ::Type{Data.Field}, source, ::Type{T}, ::Type{TT}, row, col, sch, f)
-    val = f(Data.streamfrom(source, Data.Field, T, row, col)::T)::TT
+    val = f(Data.streamfrom(source, Data.Field, T, row, col))
     return Data.streamto!(sink, Data.Field, val, row, col, sch)
 end
 streamto!{T <: StreamType}(sink, ::Type{T}, val, row, col, sch) = streamto!(sink, T, val, row, col)
@@ -215,8 +216,7 @@ end
 
 function streamto!{T, TT}(sink, ::Type{Data.Column}, source, ::Type{T}, ::Type{TT}, row, col, sch, f)
     column = f(Data.streamfrom(source, Data.Column, T, col)::T)::TT
-    streamto!(sink, Data.Column, column, row, col, sch)
-    return length(column)
+    return streamto!(sink, Data.Column, column, row, col, sch)
 end
 
 function Data.stream!{T1, T2}(source::T1, ::Type{Data.Column}, sink::T2, source_schema, sink_schema, transforms)
@@ -299,7 +299,7 @@ end
 function DataFrame(sink, sch::Data.Schema, ::Type{Field}, append::Bool, ref::Vector{UInt8})
     rows, cols = size(sch)
     newsize = max(0, rows + (append ? size(sink, 1) : 0))
-    foreach(x->resize!(x, newsize), sink.columns)
+    foreach(x->resize!(x, newsize, sch, ref), sink.columns)
     sch.rows = newsize
     return sink
 end
@@ -327,7 +327,7 @@ function Data.streamto!{T}(sink::DataFrame, ::Type{Data.Column}, column::T, row,
     else
         append!(sink.columns[col]::T, column)
     end
-    return nothing
+    return length(column)
 end
 
 function Base.append!{T}(dest::NullableVector{WeakRefString{T}}, column::NullableVector{WeakRefString{T}})
@@ -344,6 +344,25 @@ function Base.append!{T}(dest::NullableVector{WeakRefString{T}}, column::Nullabl
     for i = 1:length(column)
         old = column.values[i]
         dest.values[offset + i] = WeakRefString{T}(pointer(dest.parent, parentoffset + old.ind), old.len, parentoffset + old.ind)
+    end
+    return length(dest)
+end
+
+Base.resize!(vec, newsize, sch, ref) = resize!(vec, newsize)
+
+function Base.resize!{T}(dest::NullableVector{WeakRefString{T}}, newsize::Int, sch, ref::Vector{UInt8})
+    oldsize = length(dest)
+    oldparentsize = length(dest.parent)
+    # resizing `dest` would invalid all existing WeakRefString pointers
+    resize!(dest.values, newsize)
+    resize!(dest.isnull, newsize)
+    append!(dest.parent, ref)
+    for i = 1:oldsize
+        old = dest.values[i]
+        dest.values[i] = WeakRefString{T}(pointer(dest.parent, old.ind), old.len, old.ind)
+    end
+    if haskey(sch.metadata, "CSV.Source")
+        sch.metadata["CSV.Source"].ptr = pointer(dest.parent, oldparentsize + 1)
     end
     return length(dest)
 end
