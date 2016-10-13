@@ -5,10 +5,6 @@ export Data, DataFrame
 
 module Data
 
-if !isdefined(Core, :String)
-    typealias String UTF8String
-end
-
 abstract StreamType
 immutable Field <: StreamType end
 immutable Column <: StreamType end
@@ -87,8 +83,6 @@ transform(sch::Data.Schema, transforms::Dict{String,Function}) = transform(sch, 
 abstract Source
 
 # Required methods
-# size(source)
-# size(source, i)
 function schema end
 function isdone end
 """
@@ -100,6 +94,8 @@ function streamtype end
 function streamfrom end
 
 # Optional method
+# size(source)
+# size(source, i)
 function reference end
 
 # Generic fallbacks
@@ -130,6 +126,8 @@ function streamtypes end
 function streamto! end
 
 # Optional methods
+# size(source)
+# size(source, i)
 function cleanup! end
 function close! end
 
