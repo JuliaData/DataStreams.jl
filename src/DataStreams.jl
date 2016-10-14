@@ -296,7 +296,7 @@ end
 # with Data.Schema `sch` to it, given we know if we'll be `appending` or not
 function DataFrame(sink, sch::Data.Schema, ::Type{Field}, append::Bool, ref::Vector{UInt8})
     rows, cols = size(sch)
-    newsize = max(0, rows + (append ? size(sink, 1) : 0))
+    newsize = max(0, rows) + (append ? size(sink, 1) : 0)
     # need to make sure we don't break a NullableVector{WeakRefString{UInt8}} when appending
     if append
         for (i, T) in enumerate(Data.types(sch))
@@ -306,7 +306,7 @@ function DataFrame(sink, sch::Data.Schema, ::Type{Field}, append::Bool, ref::Vec
             end
         end
     end
-    foreach(x->resize!(x, newsize), sink.columns)
+    newsize != size(sink, 1) && foreach(x->resize!(x, newsize), sink.columns)
     sch.rows = newsize
     return sink
 end
