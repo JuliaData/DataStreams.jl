@@ -2,9 +2,16 @@ using Documenter, DataStreams
 
 makedocs(
     modules = [DataStreams],
+    format = :html,
+    sitename = "DataStreams.jl",
+    pages = ["Home" => "index.md"]
 )
 
 deploydocs(
-    deps = Deps.pip("mkdocs", "mkdocs-material", "python-markdown-math"),
-    repo = "github.com/JuliaData/DataStreams.jl.git"
+    repo = "github.com/JuliaData/DataStreams.jl.git",
+    target = "build",
+    deps = nothing,
+    make = nothing,
+    julia = "0.5",
+    osname = "linux"
 )
