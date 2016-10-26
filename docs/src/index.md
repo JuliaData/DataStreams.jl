@@ -27,7 +27,7 @@ The `Data.Source` interface requires the following definitions, where `MyPkg` wo
 
 Optional definition:
 
-  * `Data.reference(::MyPkg.Source) => Vector{UInt8}`; Sometimes, a `Source` needs the `Sink` to keep a reference to memory to keep a data structure valid. A `Source` can implement this method to return a `Vector{UInt8}` that the `Sink` will need to handle appropriately.
+  * `Data.reference(::MyPkg.Source) => Vector{UInt8}`; Sometimes, a `Source` needs the `Sink` to keep a reference to memory to keep data valid after the `Source` goes out of scope. A `Source` can implement this method to return a `Vector{UInt8}` that the `Sink` will need to handle appropriately.
   * `Base.size(::MyPkg.Source[, i]) => Int`; not explicitly required to enable data-streaming, but a `Source` should generally be able to describe its first 2 dimensions, i.e. # of rows and columns.
 
 A `Data.Source` also needs to "register" the type (or types) of streaming it supports. Currently defined streaming types in the DataStreams framework include:
@@ -55,15 +55,15 @@ Similar to a `Data.Source`, a `Data.Sink` needs to "register" the types of strea
 
 A `Data.Sink` needs to also implement specific forms of constructors that ensure proper Sink state in many higher-level streaming functions:
 
-  * `MyPkg.Sink{T <: Data.StreamType}(schema::Data.Schema, ::Type{T}, append::Bool, ref::Vector{UInt8}, args...; kwargs...)`; given a `schema::Data.Schema` a source will be providing, the type of streaming `T` (`Field` or `Column`), whether the user desires to append the data or not, a possible memory reference `ref` and any necessary `args...` and `kwargs...`, construct an appropriate instance of `MyPkg.Sink` ready to receive data from `source`. The `append` argument allows an already existing sink file/source to "reset" itself if the user does not desire to append.
-  * `MyPkg.Sink{T <: Data.StreamType}(sink, schema::Data.Schema, ::Type{T}, append::Bool, ref::Vector{UInt8})`; similar to above, but instead of constructing a new `Sink`, an existing `Sink` is given as a first argument, which may be modified before being returned, ready to receive data according to the `Data.Source` `schema`.
+  * `MyPkg.Sink{T <: Data.StreamType}(schema::Data.Schema, ::Type{T}, append::Bool, ref::Vector{UInt8}, args...; kwargs...)`; given the `schema::Data.Schema` of a `Data.Source`, the type of streaming `T` (`Data.Field` or `Data.Column`), whether the user desires to append the data or not, a possible memory reference `ref` and any `Data.Sink` positional `args...` or keyword arguments `kwargs...`, construct an appropriate instance of `MyPkg.Sink` ready to receive data. The `append` argument allows an already existing sink file/source to "reset" itself if the user does not desire to append.
+  * `MyPkg.Sink{T <: Data.StreamType}(sink, schema::Data.Schema, ::Type{T}, append::Bool, ref::Vector{UInt8})`; similar to above, but instead of constructing a new `Sink`, an existing `Sink` is given as a first argument, which may be modified before being returned, ready to receive data according to the `Data.Source` `schema`. Note that a `Data.Sink` should modify itself according to the new `append` and `ref` arguments as well.
 
 Similar to `Data.Source`, a `Data.Sink` also needs to implement it's own `streamto!` method that indicates how it receives data.
 
 A `Data.Sink` supports **field-based** streaming by defining:
 
   * `Data.streamto!{T}(sink::MyPkg.Sink, ::Type{Data.Field}, val::T, row, col[, schema])`: Given a `row`, `col`, and `val::T` a `Data.Sink` should store the value appropriately. The type of the value retrieved is given by `T`, which may be `Nullable{T}`. Optionally provided is the `schema` (the same `schema` that is passed in the `MyPkg.Sink(schema, ...)` constructors). This argument is passed for efficiency since
-  it can be calculated once at the beginning of a `Data.stream!` and used quickly for many calls to `Data.streamto!`. This argument is optional, because a Sink can overload `Data.streamto!` with or without it.
+  it can be calculated once at the beginning of a `Data.stream!` and used quickly for many calls to `Data.streamto!`. This argument is optional, because a Sink can overload `Data.streamto!` with or without it. Note that it is appropriate for a `Data.Sink` to implement specialized `Data.streamto!` methods that can dispath according to the type `T` of `val::T`, although not strictly required.
 
 A `Data.Sink` supports **column-based** streaming by defining:
 
@@ -73,7 +73,7 @@ A `Data.Sink` supports **column-based** streaming by defining:
 A `Data.Sink` can optionally define the following if needed:
 
   * `Data.cleanup!(sink::MyPkg.Sink)`: certain `Data.Sink`, like databases, may need to protect against inconvenient or dangerous "states" if there happens to be an error while streaming. `Data.cleanup!` provides the sink a way to rollback a transaction or other kind of cleanup if an error occurs during streaming
-  * `Data.close!(sink::MyPkg.Sink)`: during the `Data.stream!` workflow, a `Data.Sink` should remain "open" to receiving data until `Data.close!` is call explicitly. `Data.close!` is defined to allow a sink to fully commit all streaming results and close/destroy any necessary resources.
+  * `Data.close!(sink::MyPkg.Sink)`: during the `Data.stream!` workflow, a `Data.Sink` should remain "open" to receiving data until a call to `Data.close!`. `Data.close!` is defined to allow a sink to fully commit all streaming results and close/destroy any necessary resources. Note that most convenience functions provided by packages will implicitly call `Data.close!` after streaming has finished from a single `Data.Source` to a single `Data.Sink` (e.g. `CSV.read`, `SQLite.query`, `Feather.read`, `ODBC.query`, etc.).
 
 
 ## `Data.Schema`
