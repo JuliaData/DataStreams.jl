@@ -22,7 +22,6 @@ Packages can have a single julia type implement both the `Data.Source` and `Data
 
 The `Data.Source` interface requires the following definitions, where `MyPkg` would represent a package wishing to implement the interface:
 
-  * `Data.schema(::MyPkg.Source) => Data.Schema`; get the `Data.Schema` of a `Data.Source`. Typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required. See `?Data.Schema` or docs below for more information on `Data.Schema`
   * `Data.isdone(::MyPkg.Source, row, col) => Bool`; indicates whether the `Data.Source` will be able to provide a value at a given a `row` and `col`.
 
 Optional definition:
@@ -37,12 +36,14 @@ A `Data.Source` also needs to "register" the type (or types) of streaming it sup
 
 A `Data.Source` formally supports **field-based** streaming by defining the following:
 
+  * `Data.schema(::MyPkg.Source, ::Type{Data.Field}) => Data.Schema`; get the `Data.Schema` of a `Data.Source`. The column types of `MyPkg.Source` are provided as "scalar" types, so `Nullable{Int}` instead of `NullableVector{Int}`. Typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required. See `?Data.Schema` or docs below for more information on `Data.Schema`
   * `Data.streamtype(::Type{MyPkg.Source}, ::Type{Data.Field}) = true`; declares that `MyPkg.Source` supports field-based streaming
   * `Data.streamfrom{T}(::MyPkg.Source, ::Type{Data.Field}, ::Type{Nullable{T}}, row, col) => Nullable{T}`; returns a value of type `Nullable{T}` given a specific `row` and `col` from `MyPkg.Source`
   * `Data.streamfrom{T}(::MyPkg.Source, ::Type{Data.Field}, ::Type{T}, row, col) => T`; returns a value of type `T` given a specific `row` and `col` from `MyPkg.Source`
 
 And for column-based streaming:
 
+  * `Data.schema(::MyPkg.Source, ::Type{Data.Column}) => Data.Schema`; get the `Data.Schema` of a `Data.Source`. The column types of `MyPkg.Source` are provided as "vector" types, so `NullableVector{Int}` instead of `Nullable{Int}`. Typically the `Source` type will store the `Data.Schema` directly, but this isn't strictly required. See `?Data.Schema` or docs below for more information on `Data.Schema`
   * `Data.streamtype(::Type{MyPkg.Source}, ::Type{Data.Column}) = true`  
   * `Data.streamfrom{T}(::Data.Source, ::Type{Data.Column}, ::Type{T}, col) => Vector{T}`; Given a type `T`, returns column # `col` of a `Data.Source` as a `Vector{T}`
   * `Data.streamfrom{T}(::Data.Source, ::Type{Data.Column}, ::Type{Nullable{T}}, col) => NullableVector{T}`; Given a type `Nullable{T}`, returns column # `col` of a `Data.Source` as a `NullableVector{T}`
