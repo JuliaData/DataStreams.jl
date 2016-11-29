@@ -42,3 +42,13 @@ src_tb = DataFrame()
 snk = TableSink(sch)
 
 snk_tb = Data.stream!(src_tb, snk)
+
+schema = Data.Schema(["A", "B"], [Int64, String])
+transforms = Dict{String, Function}("A" => (x) -> -x, "B" => lowercase)
+sink_schema, transforms2 = Data.transform(schema, transforms)
+@test transforms2 == [transforms["A"], transforms["B"]]
+
+schema = Data.Schema(["A", "B"], [Int64, String])
+transforms = Dict{String, Function}("B" => lowercase)
+sink_schema, transforms2 = Data.transform(schema, transforms)
+@test transforms2 == [identity, transforms["B"]]
