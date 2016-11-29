@@ -77,7 +77,7 @@ function transform(sch::Data.Schema, transforms::Dict{Int,Function})
     end
     return Schema(Data.header(sch), newtypes, size(sch, 1), sch.metadata), transforms2
 end
-transform(sch::Data.Schema, transforms::Dict{String,Function}) = transform(sch, Dict(sch[x]=>f for (x,f) in transforms))
+transform(sch::Data.Schema, transforms::Dict{String,Function}) = transform(sch, Dict{Int,Function}(sch[x]=>f for (x,f) in transforms))
 
 # Data.Source Interface
 abstract Source
