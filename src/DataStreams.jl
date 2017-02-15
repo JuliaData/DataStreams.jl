@@ -246,9 +246,9 @@ end
 using DataTables, NullableArrays, CategoricalArrays, WeakRefStrings
 
 # DataTables DataStreams implementation
-function Data.schema(df::DataTable, ::Type{Data.Column})
-    return Data.Schema(map(string, names(df)),
-            DataType[typeof(A) for A in df.columns], size(df, 1))
+function Data.schema(dt::DataTable, ::Type{Data.Column})
+    return Data.Schema(map(string, names(dt)),
+            DataType[typeof(A) for A in dt.columns], size(dt, 1))
 end
 
 # DataTable as a Data.Source
