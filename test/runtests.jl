@@ -1,4 +1,4 @@
-using Base.Test, DataStreams, DataFrames, NullableArrays
+using Base.Test, DataStreams, DataTables, NullableArrays
 
 if !isdefined(Core, :String)
     typealias String UTF8String
@@ -33,12 +33,12 @@ TableSink(s::Data.Source) = TableSink(schema(s))
 
 import DataStreams.Data.stream!
 
-function Data.stream!(src::DataFrame, snk::TableSink)
+function Data.stream!(src::DataTable, snk::TableSink)
     # TODO: this could be improved considering different source Schema.
     snk.data = src.columns
 end
 
-src_tb = DataFrame()
+src_tb = DataTable()
 snk = TableSink(sch)
 
 snk_tb = Data.stream!(src_tb, snk)

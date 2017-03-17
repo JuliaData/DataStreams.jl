@@ -18,6 +18,7 @@ Packages can have a single julia type implement both the `Data.Source` and `Data
   * [`SQLite.Sink`](https://github.com/JuliaDB/SQLite.jl/blob/master/src/Sink.jl)
   * [`DataFrame`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L287)
   * [`DataTables`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L287)
+  * [`DataTable`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L287)
   * [`ODBC.Sink`](https://github.com/JuliaDB/ODBC.jl/blob/master/src/Sink.jl)
 
 ## `Data.Source` Interface
