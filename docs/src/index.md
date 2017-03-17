@@ -10,12 +10,14 @@ Packages can have a single julia type implement both the `Data.Source` and `Data
   * [`CSV.Source`](https://github.com/JuliaData/CSV.jl/blob/master/src/Source.jl)
   * [`SQLite.Source`](https://github.com/JuliaDB/SQLite.jl/blob/master/src/Source.jl)
   * [`DataFrame`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L251)
+  * [`DataTables`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L251)
   * [`ODBC.Source`](https://github.com/JuliaDB/ODBC.jl/blob/master/src/Source.jl)
 
 `Data.Sink` implementations:
   * [`CSV.Sink`](https://github.com/JuliaData/CSV.jl/blob/master/src/Sink.jl)
   * [`SQLite.Sink`](https://github.com/JuliaDB/SQLite.jl/blob/master/src/Sink.jl)
   * [`DataFrame`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L287)
+  * [`DataTables`](https://github.com/JuliaData/DataStreams.jl/blob/master/src/DataStreams.jl#L287)
   * [`ODBC.Sink`](https://github.com/JuliaDB/ODBC.jl/blob/master/src/Sink.jl)
 
 ## `Data.Source` Interface
