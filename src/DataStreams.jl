@@ -5,7 +5,9 @@ export Data, DataFrame
 
 module Data
 
-abstract StreamType
+using Compat
+
+@compat abstract type StreamType end
 immutable Field <: StreamType end
 immutable Column <: StreamType end
 
@@ -80,7 +82,7 @@ end
 transform(sch::Data.Schema, transforms::Dict{String,Function}) = transform(sch, Dict{Int,Function}(sch[x]=>f for (x,f) in transforms))
 
 # Data.Source Interface
-abstract Source
+@compat abstract type Source end
 
 # Required methods
 function schema end
@@ -112,7 +114,7 @@ reference(x) = UInt8[]
 #TODO: fallback for streamfrom for Nullables
 
 # Data.Sink Interface
-abstract Sink
+@compat abstract type Sink end
 
 # Required methods
 # Sink(sch::Data.Schema, S, append, ref, args...; kwargs...)
