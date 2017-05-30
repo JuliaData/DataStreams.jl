@@ -5,7 +5,7 @@ export Data
 
 module Data
 
-using Compat, Nulls
+using Compat, Nulls, WeakRefStrings
 
 # Data.Schema
 """
@@ -60,13 +60,16 @@ function Base.show{R, T}(io::IO, schema::Schema{R, T})
     end
 end
 
-function transform{R, T}(sch::Data.Schema{R, T}, transforms::Dict{Int, Function})
+function transform{R, T}(sch::Data.Schema{R, T}, transforms::Dict{Int, Function}, weakref)
     types = Data.types(sch)
     transforms2 = ((get(transforms, x, identity) for x = 1:length(types))...)
     newtypes = ((Core.Inference.return_type(transforms2[x], (types[x],)) for x = 1:length(types))...)
+    if !weakref
+        newtypes = map(x->x >: Null ? ifelse(Nulls.T(x) <: WeakRefString, ?String, x) : ifelse(x <: WeakRefString, String, x), newtypes)
+    end
     return Schema(Data.header(sch), newtypes, size(sch, 1), sch.metadata), transforms2
 end
-transform(sch::Data.Schema, transforms::Dict{String,Function}) = transform(sch, Dict{Int, Function}(sch[x]=>f for (x, f) in transforms))
+transform(sch::Data.Schema, transforms::Dict{String,Function}, s) = transform(sch, Dict{Int, Function}(sch[x]=>f for (x, f) in transforms), s)
 
 # Data.StreamTypes
 @compat abstract type StreamType end
@@ -89,6 +92,13 @@ function streamfrom end
 
 # Generic fallbacks
 Data.streamtype{T <: StreamType}(source, ::Type{T}) = false
+
+struct RandomAccess end
+struct Sequential end
+accesspattern(x) = Sequential()
+
+const EMPTY_REFERENCE = UInt8[]
+reference(x) = EMPTY_REFERENCE
 
 # Data.Sink Interface
 @compat abstract type Sink end
@@ -115,6 +125,8 @@ close!(sink) = sink
 # Data.stream!
 function stream! end
 
+weakrefstrings(x) = false
+
 # generic public definitions
 const TRUE = x->true
 # the 2 methods below are safe and expected to be called from higher-level package convenience functions (e.g. CSV.read)
@@ -128,8 +140,13 @@ function Data.stream!{So, Si}(source::So, ::Type{Si}, args...;
     for sinkstreamtype in sinkstreamtypes
         if Data.streamtype(So, sinkstreamtype)
             source_schema = Data.schema(source)
-            sink_schema, transforms2 = Data.transform(source_schema, transforms)
-            sink = Si(sink_schema, sinkstreamtype, append, args...; kwargs...)
+            wk = weakrefstrings(Si)
+            sink_schema, transforms2 = Data.transform(source_schema, transforms, wk)
+            if wk
+                sink = Si(sink_schema, sinkstreamtype, append, args...; reference=Data.reference(source), kwargs...)
+            else
+                sink = Si(sink_schema, sinkstreamtype, append, args...; kwargs...)
+            end
             return Data.stream!(source, sinkstreamtype, sink, source_schema, sink_schema, transforms2, filter, columns)
         end
     end
@@ -145,8 +162,13 @@ function Data.stream!{So, Si}(source::So, sink::Si;
     for sinkstreamtype in sinkstreamtypes
         if Data.streamtype(So, sinkstreamtype)
             source_schema = Data.schema(source)
-            sink_schema, transforms2 = transform(source_schema, transforms)
-            sink = Si(sink, sink_schema, sinkstreamtype, append)
+            wk = weakrefstrings(Si)
+            sink_schema, transforms2 = transform(source_schema, transforms, wk)
+            if wk
+                sink = Si(sink, sink_schema, sinkstreamtype, append; reference=Data.reference(source))
+            else
+                sink = Si(sink, sink_schema, sinkstreamtype, append)
+            end
             return Data.stream!(source, sinkstreamtype, sink, source_schema, sink_schema, transforms2, filter, columns)
         end
     end
@@ -176,9 +198,6 @@ end
  # if where = true, execute @nexprs streamto!, else continue
 
 # WeakRefStringArray
- # source provides Schema that includes WeakRefString types
- # SupportsWeakRefString trait
- # Data.transform can convert to regular String type if sink doesn't support
  # pass tuple of reference columns to Sink constructor
  # sink constructor needs to allocate WeakRefStringArray w/ source reference columns
  # setindex(A, WeakRefString(ptr, idx, len), i)
@@ -197,8 +216,15 @@ end
         try
             @inbounds for row = 1:rows
                 Base.@nexprs $N col->begin
-                    val_col = transforms[col](Data.streamfrom(source, Data.Field, sourcetypes[col], sinkrows + row, col))
-                    Data.streamto!(sink, Data.Field, val_col, sinkrows + row, col, Val{true})
+                        val_col = Data.streamfrom(source, Data.Field, sourcetypes[col], sinkrows + row, col)
+                        # hack to improve codegen due to inability of inference to inline Union{T, Null} val_col here
+                        if val_col isa Null
+                            Data.streamto!(sink, Data.Field, transforms[col](val_col), sinkrows + row, col, Val{true})
+                        else
+                            Data.streamto!(sink, Data.Field, transforms[col](val_col), sinkrows + row, col, Val{true})
+                        end
+                    # val_col = transforms[col](Data.streamfrom(source, Data.Field, sourcetypes[col], sinkrows + row, col))
+                    # Data.streamto!(sink, Data.Field, val_col, sinkrows + row, col, Val{true})
                 end
             end
         catch e
