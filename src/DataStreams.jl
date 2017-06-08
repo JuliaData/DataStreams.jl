@@ -53,7 +53,12 @@ Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.col
 
 header(source_or_sink) = header(schema(source_or_sink))
 types{T <: StreamType}(source_or_sink, ::Type{T}=Field) = types(schema(source_or_sink, T))
-setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows; nothing) : nothing
+# TODO This is a temporary workaround to make things work on julia 0.6
+if VERSION>=v"0.6.0-"
+    setrows!(source, rows) = nothing
+else
+    setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows; nothing) : nothing
+end
 
 Base.getindex(sch::Schema, col::String) = sch.index[col]
 
