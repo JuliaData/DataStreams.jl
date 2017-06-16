@@ -14,6 +14,20 @@ filter = x->true
 @code_warntype DataStreams.Data.stream!(source, sinkstreamtype, sink, source_schema, sink_schema, transforms2, filter, columns)
 
 
+source = ODBC.Source(dsn, "show databases")
+sink = Si = NamedTuple
+transforms = Dict{Int,Function}()
+append = false
+args = kwargs = ()
+source_schema = DataStreams.Data.schema(source)
+sink_schema, transforms2 = DataStreams.Data.transform(source_schema, transforms, true);
+sinkstreamtype = DataStreams.Data.Column
+sink = Si(sink_schema, sinkstreamtype, append, args...; kwargs...);
+columns = []
+filter = x->true
+@code_warntype DataStreams.Data.stream!(source, sinkstreamtype, sink, source_schema, sink_schema, transforms2, filter, columns)
+
+
 # mutable struct RowIterator{names,T}
 #     nt::NamedTuple{names, T}
 # end
