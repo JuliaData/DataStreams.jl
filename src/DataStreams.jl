@@ -116,7 +116,7 @@ Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, col::Int) where {T}
 """
 function streamfrom end
 Data.streamfrom(source, ::Type{S}, T, row, ::Type{Val{N}}) where {S <: StreamType, N} = Data.streamfrom(source, S, T, row, N)
-Data.streamfrom(source, ::Type{Data.Column}, T, row, col::Int) = Data.streamfrom(source, Data.Column, T, N)
+Data.streamfrom(source, ::Type{Data.Column}, T, row, col::Int) = Data.streamfrom(source, Data.Column, T, col)
 
 # Generic fallbacks
 Data.streamtype(source, ::Type{<:StreamType}) = false
@@ -279,6 +279,7 @@ function inner_loop(::Type{Val{N}}, ::Type{S}, ::Type{Val{homogenous}}, ::Type{T
             end
         end
     end
+    # println(macroexpand(loop))
     return loop
 end
 
@@ -302,7 +303,7 @@ function generate_loop(::Type{Val{knownrows}}, ::Type{S}, inner_loop) where {kno
             Data.setrows!(source, row)
         end
     end
-    # println(loop)
+    println(macroexpand(loop))
     return loop
 end
 
@@ -321,6 +322,7 @@ end
         rows, cols = size(source_schema)::Tuple{$RR, Int}
         Data.isdone(source, 1, 1, rows, cols) && return sink
         sourcetypes = $sourcetypes
+        N = $N
         try
             $(generate_loop(knownrows, S, inner_loop(N, S, homogeneous, T, knownrows)))
         catch e
