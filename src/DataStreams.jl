@@ -7,6 +7,10 @@ module Data
 
 using Compat, Nulls, WeakRefStrings
 
+struct NullException <: Exception
+    msg::String
+end
+
 # Data.Schema
 """
 A `Data.Schema` describes a tabular dataset (i.e. a set of optionally named, typed columns with records as rows)
@@ -18,36 +22,36 @@ A `Data.Schema` describes a tabular dataset (i.e. a set of optionally named, typ
  * `Data.types(schema)` to return the column types in a `Data.Schema`; `Nullable{T}` indicates columns that may contain missing data (null values)
  * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`; note that # of rows may be `null`, meaning unknown
 """
-mutable struct Schema{R <: ?Int, T}
+mutable struct Schema{R, T}
     header::Vector{String}       # column names
-    # types::T                     # Julia types of columns
-    rows::R                      # number of rows in the dataset
+    # types::T                   # Julia types of columns
+    rows::(?Int)                      # number of rows in the dataset
     cols::Int                    # number of columns in a dataset
     metadata::Dict               # for any other metadata we'd like to keep around (not used for '==' operation)
     index::Dict{String, Int}     # maps column names as Strings to their index # in `header` and `types`
 end
 
-function Schema{T <: Tuple}(header::Vector, types::T, rows::(?Integer)=0, metadata::Dict=Dict())
-    !isnull(rows) && rows < 0 && throw(ArgumentError("Invalid # of rows for Schema; use `null` to indicate an unknown # of rows"))
+function Schema(header::Vector, types::T, rows::(?Integer)=0, metadata::Dict=Dict()) where {T <: Tuple}
+    !isnull(rows) && rows < 0 && throw(ArgumentError("Invalid # of rows for Data.Schema; use `null` to indicate an unknown # of rows"))
     cols = length(header)
     cols != length(types) && throw(ArgumentError("length(header): $(length(header)) must == length(types): $(length(types))"))
     header = String[string(x) for x in header]
-    return Schema{typeof(rows), Tuple{types...}}(header, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header)))
+    return Schema{rows != null, Tuple{types...}}(header, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header)))
 end
 
 Schema(header::Vector, types::Vector, rows::(?Integer)=0, metadata::Dict=Dict()) = Schema(header, Tuple(types), rows, metadata)
 Schema(types, rows::(?Integer)=0, meta::Dict=Dict()) = Schema(String["Column$i" for i = 1:length(types)], Tuple(types), rows, meta)
-Schema() = Schema(String[], DataType[], null, Dict())
+Schema() = Schema(String[], DataType[], 0, Dict())
 
 header(sch::Schema) = sch.header
-types{R, T}(sch::Schema{R, T}) = Tuple(T.parameters)
+types(sch::Schema{R, T}) where {R, T} = Tuple(T.parameters)
 Base.size(sch::Schema) = (sch.rows, sch.cols)
 Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
 
 setrows!(source, rows) = isdefined(source, :schema) ? (source.schema.rows = rows; nothing) : nothing
 Base.getindex(sch::Schema, col::String) = sch.index[col]
 
-function Base.show{R, T}(io::IO, schema::Schema{R, T})
+function Base.show(io::IO, schema::Schema)
     println(io, "Data.Schema:")
     println(io, "rows: $(schema.rows)\tcols: $(schema.cols)")
     if schema.cols > 0
@@ -77,38 +81,77 @@ struct Column <: StreamType end
 
 # Required methods
 function schema end
+"""
+Data.Source types must at least implement:
+
+Data.isdone(source::S, row::Int, col::Int)
+
+If more convenient/performant, they can also implement:
+
+Data.isdone(source::S, row::Int, col::Int, rows::Int, cols::Int)
+
+where `rows` and `cols` are the size of the `source` passed in.
+"""
 function isdone end
+isdone(source, row, col, rows, cols) = isdone(source, row, col)
+
 """
 `Data.streamtype{T<:Data.Source, S<:Data.StreamType}(::Type{T}, ::Type{S})` => Bool
 
 Indicates whether the source `T` supports streaming of type `S`. To be overloaded by individual sources according to supported `Data.StreamType`s
 """
 function streamtype end
+
+"""
+Data.reset!(source) resets a source into a state that allows streaming its data again.
+"""
+function reset! end
+
+"""
+Data.Sink types must implement one of the following:
+
+Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, row::Int, col::Type{Val{N}}) where {T, N}
+Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, row::Int, col::Int) where {T}
+Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, col::Int) where {T}
+"""
 function streamfrom end
+Data.streamfrom(source, ::Type{S}, T, row, ::Type{Val{N}}) where {S <: StreamType, N} = Data.streamfrom(source, S, T, row, N)
+Data.streamfrom(source, ::Type{Data.Column}, T, row, col::Int) = Data.streamfrom(source, Data.Column, T, N)
 
 # Generic fallbacks
-Data.streamtype{T <: StreamType}(source, ::Type{T}) = false
+Data.streamtype(source, ::Type{<:StreamType}) = false
+Data.reset!(source) = nothing
 
 struct RandomAccess end
 struct Sequential end
 accesspattern(x) = Sequential()
 
 const EMPTY_REFERENCE = UInt8[]
+"""
+Data.Source types can optionally implement
+
+Data.reference(x::Source) => Vector{UInt8}
+
+where the type retruns a `Vector{UInt8}` that represents a memory block that should be kept in reference for WeakRefStringArrays.
+"""
 reference(x) = EMPTY_REFERENCE
 
 # Data.Sink Interface
 @compat abstract type Sink end
 
 # Required methods
-# Sink(sch::Data.Schema, S, append, args...; kwargs...)
-# Sink(sink, sch::Data.Schema, S, append)
+# Sink(sch::Data.Schema, S, append, args...; reference::Vector{UInt8}=UInt8[], kwargs...)
+# Sink(sink, sch::Data.Schema, S, append; reference::Vector{UInt8}=UInt8[], )
 """
 `Data.streamtypes{T<:Data.Sink}(::Type{T})` => Vector{StreamType}
 
 Returns a list of `Data.StreamType`s that the sink is able to receive; the order of elements indicates the sink's streaming preference
 """
 function streamtypes end
+
 function streamto! end
+Data.streamto!(sink, ::Type{S}, val::T, row, col::Type{Val{N}}, knownrows) where {S, T, N} = Data.streamto!(sink, S, val, row, col)
+Data.streamto!(sink, ::Type{S}, val::T, row, col::Type{Val{N}}) where {S, T, N} = Data.streamto!(sink, S, val, row, N)
 
 # Optional methods
 function cleanup! end
@@ -117,72 +160,64 @@ function close! end
 # Generic fallbacks
 cleanup!(sink) = nothing
 close!(sink) = sink
+weakrefstrings(x) = false
 
 # Data.stream!
 function stream! end
 
-weakrefstrings(x) = false
-
 # generic public definitions
 const TRUE = x->true
 # the 2 methods below are safe and expected to be called from higher-level package convenience functions (e.g. CSV.read)
-function Data.stream!{So, Si}(source::So, ::Type{Si}, args...;
-                                append::Bool=false,
-                                transforms::Dict=Dict{Int, Function}(),
-                                filter::Function=TRUE,
-                                columns::Vector=[],
-                                kwargs...)
-    # println("Data.stream! from $So => $Si")
+function Data.stream!(source::So, ::Type{Si}, args...;
+                        append::Bool=false,
+                        transforms::Dict=Dict{Int, Function}(),
+                        filter::Function=TRUE,
+                        columns::Vector=[],
+                        kwargs...) where {So, Si}
     sinkstreamtypes = Data.streamtypes(Si)
     for sinkstreamtype in sinkstreamtypes
         if Data.streamtype(So, sinkstreamtype)
-            # println("can stream using $sinkstreamtype Data.StreamType")
             source_schema = Data.schema(source)
             wk = weakrefstrings(Si)
             sink_schema, transforms2 = Data.transform(source_schema, transforms, wk)
-            # println("STREAMING: $source_schema => $sink_schema")
-            # println("Constructing sink for streaming...")
             if wk
                 sink = Si(sink_schema, sinkstreamtype, append, args...; reference=Data.reference(source), kwargs...)
             else
                 sink = Si(sink_schema, sinkstreamtype, append, args...; kwargs...)
             end
-            return Data.stream!(source, sinkstreamtype, sink, source_schema, sink_schema, transforms2, filter, columns)
+            sourcerows = size(source_schema, 1)
+            sinkrows = size(sink_schema, 1)
+            sinkrowoffset = ifelse(append, ifelse(isnull(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
+            return Data.stream!(source, sinkstreamtype, sink, source_schema, sinkrowoffset, transforms2, filter, columns)
         end
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
 end
 
-function Data.stream!{So, Si}(source::So, sink::Si;
-                                append::Bool=false,
-                                transforms::Dict=Dict{Int,Function}(),
-                                filter::Function=TRUE,
-                                columns::Vector=[])
-    # println("Data.stream! from $So => $Si")
+function Data.stream!(source::So, sink::Si;
+                        append::Bool=false,
+                        transforms::Dict=Dict{Int, Function}(),
+                        filter::Function=TRUE,
+                        columns::Vector=[]) where {So, Si}
     sinkstreamtypes = Data.streamtypes(Si)
     for sinkstreamtype in sinkstreamtypes
         if Data.streamtype(So, sinkstreamtype)
-            # println("can stream using $sinkstreamtype Data.StreamType")
             source_schema = Data.schema(source)
             wk = weakrefstrings(Si)
             sink_schema, transforms2 = transform(source_schema, transforms, wk)
-            # println("streaming to existing sink...")
             if wk
                 sink = Si(sink, sink_schema, sinkstreamtype, append; reference=Data.reference(source))
             else
                 sink = Si(sink, sink_schema, sinkstreamtype, append)
             end
-            return Data.stream!(source, sinkstreamtype, sink, source_schema, sink_schema, transforms2, filter, columns)
+            sourcerows = size(source_schema, 1)
+            sinkrows = size(sink_schema, 1)
+            sinkrowoffset = ifelse(append, ifelse(isnull(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
+            return Data.stream!(source, sinkstreamtype, sink, source_schema, sinkrowoffset, transforms2, filter, columns)
         end
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
 end
-
-# variables
-  # row vs. batch
-  # column selecting
-  # RandomAccess
-  # row filtering
 
 # column filtering
  # Data.transforms needs to produce sink schema w/ correct #/types of columns
@@ -197,52 +232,58 @@ end
  # probably do @nexprs for streamfroms first, then apply where func
  # if where = true, execute @nexprs streamto!, else continue
 
-Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, row::Int, col::Int) where {T} = Data.streamfrom(source, Data.Column, T, col)
-
-@inline function streamto!{S, T, N}(sink, ::Type{S}, source, ::Type{T}, row, col::Type{Val{N}}, f, knownrows)
-    val = Data.streamfrom(source, S, T, row, N)
+@inline function streamto!(sink, ::Type{S}, source, ::Type{T}, row, sinkrowoffset, col::Int, f::Function, knownrows) where {S, T}
+    val = Data.streamfrom(source, S, T, row, col)
     if val isa Null
-        return Data.streamto!(sink, S, f(val), row, col, knownrows)
+        Data.streamto!(sink, S, f(val), sinkrowoffset + row, col, knownrows)
     else
-        return Data.streamto!(sink, S, f(val), row, col, knownrows)
+        Data.streamto!(sink, S, f(val), sinkrowoffset + row, col, knownrows)
     end
+    return length(val)
 end
 
-function generate_loop(N, homogeneous, T, knownrows, S)
-    if homogeneous
-        # println("generating inner_loop w/ homogenous types...")
-        inner_loop = quote
-            for col = 1:$N
-                val = Data.streamfrom(source, $S, $T, sinkrows + row, col)
-                if val isa Null
-                    Data.streamto!(sink, $S, transforms[col](val), sinkrows + row, col, $knownrows)
+function inner_loop(::Type{Val{N}}, ::Type{S}, ::Type{Val{homogenous}}, ::Type{T}, knownrows::Type{Val{R}}) where {N, S <: StreamType, homogenous, T, R}
+    if N < 500
+        # println("generating inner_loop w/ @nexprs...")
+        incr = S == Data.Column ? :(cur_row = length($(Symbol(string("val_", N))))) : :(nothing)
+        loop = quote
+            Base.@nexprs $N col->begin
+                val_col = Data.streamfrom(source, $S, sourcetypes[col], row, Val{col})
+                # hack to improve codegen due to inability of inference to inline Union{T, Null} val_col here
+                if val_col isa Null
+                    Data.streamto!(sink, $S, transforms[col](val_col), sinkrowoffset + row, Val{col}, $knownrows)
                 else
-                    Data.streamto!(sink, $S, transforms[col](val), sinkrows + row, col, $knownrows)
+                    Data.streamto!(sink, $S, transforms[col](val_col), sinkrowoffset + row, Val{col}, $knownrows)
                 end
             end
+            $incr
         end
-    elseif N > 500
-        # println("generating inner_loop w/ > 500 columns...")
-        inner_loop = quote
-            for col = 1:cols
-                @inbounds Data.streamto!(sink, $S, source, sourcetypes[col], row, col, transforms[col], $knownrows)
+    elseif homogeneous
+        # println("generating inner_loop w/ homogenous types...")
+        loop = quote
+            for col = 1:$N
+                val = Data.streamfrom(source, $S, $T, row, col)
+                if val isa Null
+                    Data.streamto!(sink, $S, transforms[col](val), sinkrowoffset + row, col, $knownrows)
+                else
+                    Data.streamto!(sink, $S, transforms[col](val), sinkrowoffset + row, col, $knownrows)
+                end
+                $(S == Data.Column && :(cur_row = length(val)))
             end
         end
     else
-        # println("generating inner_loop w/ @nexprs...")
-        inner_loop = quote
-            Base.@nexprs $N col->begin
-                val_col = Data.streamfrom(source, $S, sourcetypes[col], sinkrows + row, col)
-                # hack to improve codegen due to inability of inference to inline Union{T, Null} val_col here
-                if val_col isa Null
-                    Data.streamto!(sink, $S, transforms[col](val_col), sinkrows + row, Val{col}, $knownrows)
-                else
-                    Data.streamto!(sink, $S, transforms[col](val_col), sinkrows + row, Val{col}, $knownrows)
-                end
+        # println("generating inner_loop w/ > 500 columns...")
+        loop = quote
+            for col = 1:cols
+                @inbounds cur_row = Data.streamto!(sink, $S, source, sourcetypes[col], row, sinkrowoffset, col, transforms[col], $knownrows)
             end
         end
     end
-    if knownrows == Val{true}
+    return loop
+end
+
+function generate_loop(::Type{Val{knownrows}}, ::Type{S}, inner_loop) where {knownrows, S <: StreamType}
+    if knownrows && S == Data.Field
         # println("generating loop w/ known rows...")
         loop = quote
             for row = 1:rows
@@ -252,11 +293,11 @@ function generate_loop(N, homogeneous, T, knownrows, S)
     else
         # println("generating loop w/ unknown rows...")
         loop = quote
-            row = 1
+            row = cur_row = 1
             while true
                 $inner_loop
-                Data.isdone(source, row, cols) && break
-                row += 1
+                row += cur_row # will be 1 for Data.Field, length(val) for Data.Column
+                Data.isdone(source, row, cols, rows, cols) && break
             end
             Data.setrows!(source, row)
         end
@@ -266,20 +307,22 @@ function generate_loop(N, homogeneous, T, knownrows, S)
 end
 
 
-@generated function Data.stream!{So, S<:StreamType, Si, R, T1}(source::So, ::Type{S}, sink::Si,
-    source_schema::Schema{R, T1}, sink_schema, transforms, filter, columns)
-    sourcetypes = Tuple(T1.parameters)
-    homogeneous = all(i -> (T1.parameters[1] === i), T1.parameters)
-    T = T1.parameters[1]
-    N = length(sourcetypes)
-    knownrows = R == Null ? Val{false} : Val{true}
+@generated function Data.stream!(source::So, ::Type{S}, sink::Si,
+                        source_schema::Schema{R, T1}, sinkrowoffset,
+                        transforms, filter, columns) where {So, S <: StreamType, Si, R, T1}
+    types = T1.parameters
+    sourcetypes = Tuple(types)
+    homogeneous = Val{all(i -> (types[1] === i), types)}
+    T = isempty(types) ? Any : types[1]
+    N = Val{length(types)}
+    knownrows = R ? Val{true} : Val{false}
+    RR = R ? Int : Null
     r = quote
-        rows, cols = size(source_schema)::Tuple{$R, Int}
-        Data.isdone(source, 1, 1) && return sink
-        sinkrows = max(0, size(sink_schema, 1)::Int - (ifelse(rows isa Null, 0, rows)))
+        rows, cols = size(source_schema)::Tuple{$RR, Int}
+        Data.isdone(source, 1, 1, rows, cols) && return sink
         sourcetypes = $sourcetypes
         try
-            $(generate_loop(N, homogeneous, T, knownrows, S))
+            $(generate_loop(knownrows, S, inner_loop(N, S, homogeneous, T, knownrows)))
         catch e
             Data.cleanup!(sink)
             rethrow(e)
@@ -290,95 +333,107 @@ end
     return r
 end
 
+if isdefined(Core, :NamedTuple)
+
+const Table = NamedTuple{names, T} where {names, T <: NTuple{N, AbstractVector{S} where S}} where {N}
+
 # NamedTuple Data.Source
 function Data.schema(df::NamedTuple{names, T}) where {names, T}
     return Data.Schema(collect(map(string, names)),
-                       Type[eltype(A) for A in T.parameters], length(getfield(df, 1)))
+                       Type[eltype(A) for A in T.parameters], length(df) == 0 ? 0 : length(getfield(df, 1)))
 end
 
 # NamedTuple as a Data.Source
-function Data.isdone(source::NamedTuple, row, col)
-    rows, cols = size(source)
-    return row > rows || col > cols
+Data.isdone(source::Table, row, col, rows, cols) = row > rows || col > cols
+function Data.isdone(source::Table, row, col)
+    cols = length(source)
+    return Data.isdone(source, row, col, cols == 0 ? 0 : length(getfield(source, 1)), cols)
 end
-
-#FIXME: avoid the type piracy here
-Base.getindex(n::NamedTuple, row, col) = getindex(getfield(n, col), row)
-Base.size(n::NamedTuple{names}, dim) where {names} = dim == 1 ? length(getfield(n, names[1])) : length(names)
 
 Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Column}) = true
 Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Field}) = true
 
-# Data.streamfrom{T <: AbstractVector}(source::NamedTuple, ::Type{Data.Column}, ::Type{T}, col) =
-#     (A = source.columns[col]::T; return A)
-Data.streamfrom{T}(source::NamedTuple, ::Type{Data.Column}, ::Type{T}, col) =
-    (A = source.columns[col]::AbstractVector{T}; return A)
-Data.streamfrom{T}(source::NamedTuple, ::Type{Data.Field}, ::Type{T}, row, col) =
-    (A = source.columns[col]::AbstractVector{T}; return A[row]::T)
+Data.streamfrom(source::Table, ::Type{Data.Column}, ::Type{T}, row, ::Type{Val{N}}) where {T, N} = source[N]
+Data.streamfrom(source::Table, ::Type{Data.Field}, ::Type{T}, row, ::Type{Val{N}}) where {T, N} = source[N][row]
+
+Data.streamfrom(source::Table, ::Type{Data.Column}, ::Type{T}, row, col::Int) where {T} = source[col]
+Data.streamfrom(source::Table, ::Type{Data.Field}, ::Type{T}, row, col::Int) where {T} = source[col][row]
 
 # NamedTuple Data.Sink
 Data.streamtypes(::Type{<:NamedTuple}) = [Data.Column, Data.Field]
 Data.weakrefstrings(::Type{<:NamedTuple}) = true
 
-allocate{T}(::Type{T}, rows, ref) = Vector{T}(rows)
-# allocate{T}(::Type{Vector{T}}, rows, ref) = Vector{T}(rows)
+allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
 allocate(::Type{T}, rows, ref) where {T <: ?WeakRefString} = WeakRefStringArray(ref, T, rows)
 
-function NamedTuple(sch::Data.Schema{R}, ::Type{S},
-                    append::Bool, args...; reference::Vector{UInt8}=UInt8[]) where {R, S}
+# NamedTuple doesn't allow duplicate names, so make sure there are no duplicates
+function makeunique(names::Vector{String})
+    nms = Vector{Symbol}(names)
+    seen = Set{Symbol}()
+    for (i, x) in enumerate(nms)
+        x in seen ? setindex!(nms, Symbol("$(x)_$i"), i) : push!(seen, x)
+    end
+    return (nms...)
+end
+
+function NamedTuple(sch::Data.Schema{R}, ::Type{S}=Data.Field,
+                    append::Bool=false, args...; reference::Vector{UInt8}=UInt8[]) where {R, S <: StreamType}
     types = Data.types(sch)
-    if !isempty(args) && types == Data.types(Data.schema(args[1]))
+    if !isempty(args) && args[1] isa Table && types == Data.types(Data.schema(args[1]))
         # passing in an existing NamedTuple Sink w/ same types
         sink = args[1]
-        if append && (S <: Data.Column || R == Null)
-            # don't need to do anything, just return existing sink
-            # println("don't need to adjust sink")
+        sinkrows = size(Data.schema(sink), 1)
+        if append && (S <: Data.Column || !R)
+            sch.rows = sinkrows
+            # dont' need to do anything because:
+              # for Data.Column, we just append columns anyway (see Data.streamto! below)
+              # for Data.Field, the # of rows in the source are unknown (isnull(rows)), so we'll just push! in streamto!
         else
-            # println("adjusting an existing sink")
-            sinkrows = size(sink, 1)
-            newsize = ifelse(S <: Data.Column || R == Null, 0, ifelse(append, sinkrows + sch.rows, sinkrows))
-            # @show newsize
+            # need to adjust the existing sink
+            # similar to above, for Data.Column or unknown # of rows for Data.Field, we'll append!/push!, so we empty! the columns
+            # if appending, we want to grow our columns to be able to include every row in source (sinkrows + sch.rows)
+            # if not appending, we're just "re-using" a sink, so we just resize it to the # of rows in the source
+            newsize = ifelse(S <: Data.Column || !R, 0, ifelse(append, sinkrows + sch.rows, sch.rows))
             foreach(col->resize!(col, newsize), sink)
             sch.rows = newsize
         end
+        # take care of a possible reference from source by letting WeakRefStringArrays hold on to them
         if !isempty(reference)
             foreach(col-> col isa WeakRefStringArray && push!(col.data, reference), sink)
         end
     else
-        # println("allocating a fresh sink")
         # allocating a fresh NamedTuple Sink; append is irrelevant
-        rows = ifelse(S <: Data.Column, 0, ifelse(R == Null, 0, sch.rows))
-        columns = ((Symbol(x) for x in Data.header(sch))...)
-        sink = Base.namedtuple(NamedTuple{columns}, (allocate(types[i], rows, reference) for i = 1:length(types))...)
+        # for Data.Column or unknown # of rows in Data.Field, we only ever append!, so just allocate empty columns
+        rows = ifelse(S <: Data.Column, 0, ifelse(!R, 0, sch.rows))
+        names = makeunique(Data.header(sch))
+        sink = Base.namedtuple(NamedTuple{names}, (allocate(types[i], rows, reference) for i = 1:length(types))...)
+        sch.rows = rows
     end
-    # @show typeof(sink)
     return sink
 end
 
-function (::Type{N})(sink::N, sch::Data.Schema, ::Type{S}, append::Bool; reference::Vector{UInt8}=UInt8[]) where {N <: NamedTuple, S}
+function (::Type{N})(sink::N, sch::Data.Schema, ::Type{S}, append::Bool; reference::Vector{UInt8}=UInt8[]) where {N <: Table, S}
     return NamedTuple(sch, S, append, sink; reference=reference)
 end
 
-@inline Data.streamto!{names, C, T, N}(sink::NamedTuple{names, C}, ::Type{Data.Field}, val::T, row, col::Type{Val{N}}, ::Type{Val{false}}) =
+@inline Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Type{Val{N}}, ::Type{Val{false}}) where {N} =
     push!(getfield(sink, N), val)
-@inline Data.streamto!{names, C, T, N}(sink::NamedTuple{names, C}, ::Type{Data.Field}, val::T, row, col::Type{Val{N}}, ::Type{Val{true}}) =
+@inline Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Type{Val{N}}, ::Type{Val{true}}) where {N} =
     getfield(sink, N)[row] = val
+@inline Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int) =
+    (A = getfield(sink, col); row > length(A) ? push!(A, val) : setindex!(A, val, row))
 
-@inline Data.streamto!{names, C, T}(sink::NamedTuple{names, C}, ::Type{Data.Field}, val::T, row, col::Int, ::Type{Val{false}}) =
+@inline Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int, ::Type{Val{false}}) =
     push!(getfield(sink, col), val)
-@inline Data.streamto!{names, C, T}(sink::NamedTuple{names, C}, ::Type{Data.Field}, val::T, row, col::Int, ::Type{Val{true}}) =
+@inline Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int, ::Type{Val{true}}) =
     getfield(sink, col)[row] = val
 
-@inline function Data.streamto!{names, C, T, N}(sink::NamedTuple{names, C}, ::Type{Data.Column}, column::T, row, col::Type{Val{N}}, knownrows)
+@inline Data.streamto!(sink::Table, ::Type{Data.Column}, column, row, col::Type{Val{N}}, knownrows) where {N} =
     append!(getfield(sink, N), column)
-    return nothing
-    # return length(column)
-end
-@inline function Data.streamto!{names, C, T}(sink::NamedTuple{names, C}, ::Type{Data.Column}, column::T, row, col::Int, knownrows)
+@inline Data.streamto!(sink::Table, ::Type{Data.Column}, column, row, col::Int, knownrows) =
     append!(getfield(sink, col), column)
-    return nothing
-    # return length(column)
-end
+
+end # if isdefined(Core, :NamedTuple)
 end # module Data
 
 end # module DataStreams
