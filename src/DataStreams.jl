@@ -303,7 +303,7 @@ function generate_loop(::Type{Val{knownrows}}, ::Type{S}, inner_loop) where {kno
             Data.setrows!(source, row)
         end
     end
-    println(macroexpand(loop))
+    # println(macroexpand(loop))
     return loop
 end
 
