@@ -25,8 +25,7 @@ A `Data.Schema` describes a tabular dataset, i.e. a set of named, typed columns 
 `Data.Schema` has the following constructors:
 
  * `Data.Schema()`: create an "emtpy" schema with no rows, no columns, and no column names
- * `Data.Schema(types[, rows, meta::Dict])`: column element types are provided as a tuple or vector; # of rows can be an Int or `null` to indicate unknown # of rows
- * `Data.Schema(header, types[, rows, meta])`: provide explicit column names in addition to column element types
+ * `Data.Schema(types[, header, rows, meta::Dict])`: column element types are provided as a tuple or vector; column names provided as an iterable; # of rows can be an Int or `null` to indicate unknown # of rows
 
 `Data.Schema` are indexable via column names to get the number of that column in the `Data.Schema`
 
@@ -54,7 +53,7 @@ mutable struct Schema{R, T}
     index::Dict{String, Int} # maps column names as Strings to their index # in `header` and `types`
 end
 
-function Schema(types=(), header=String["Column$i" for i = 1:length(types)], rows::(?Integer)=0, metadata::Dict=Dict())
+function Schema(types=(), header=["Column$i" for i = 1:length(types)], rows::(?Integer)=0, metadata::Dict=Dict())
     !isnull(rows) && rows < 0 && throw(ArgumentError("Invalid # of rows for Data.Schema; use `null` to indicate an unknown # of rows"))
     types2 = Tuple(types)
     header2 = String[string(x) for x in header]
@@ -62,6 +61,7 @@ function Schema(types=(), header=String["Column$i" for i = 1:length(types)], row
     cols != length(types2) && throw(ArgumentError("length(header): $(length(header2)) must == length(types): $(length(types2))"))
     return Schema{rows != null, Tuple{types2...}}(header2, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header2)))
 end
+Schema(types, rows::(?Integer), metadata::Dict=Dict()) = Schema(types, ["Column$i" for i = 1:length(types)], rows, metadata)
 
 header(sch::Schema) = sch.header
 types(sch::Schema{R, T}) where {R, T} = Tuple(T.parameters)
@@ -109,9 +109,9 @@ Data.isdone(source::S, row::Int, col::Int)
 
 If more convenient/performant, they can also implement:
 
-Data.isdone(source::S, row::Int, col::Int, rows::Int, cols::Int)
+Data.isdone(source::S, row::Int, col::Int, rows::Union{Int, Null}, cols::Int)
 
-where `rows` and `cols` are the size of the `source` passed in.
+where `rows` and `cols` are the size of the `source`'s schema when streaming.
 """
 function isdone end
 isdone(source, row, col, rows, cols) = isdone(source, row, col)
@@ -129,10 +129,9 @@ Data.reset!(source) resets a source into a state that allows streaming its data 
 function reset! end
 
 """
-Data.Sink types must implement one of the following:
+Data.Source types must implement one of the following:
 
-Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, row::Int, col::Type{Val{N}}) where {T, N}
-Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, row::Int, col::Int) where {T}
+Data.streamfrom(source, ::Type{Data.Field}, ::Type{T}, row::Int, col::Int) where {T}
 Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, col::Int) where {T}
 """
 function streamfrom end
@@ -144,6 +143,18 @@ Data.reset!(source) = nothing
 
 struct RandomAccess end
 struct Sequential end
+
+"""
+`Data.accesspatern(source) => Data.RandomAccess/Data.Sequential`
+
+returns the data access pattern for a Data.Source.
+
+`RandomAccess` indicates that a source supports streaming a data (via calls to `Data.streamfrom`) with arbitrary row/column values in any particular order.
+
+`Sequential` indicates that the source only supports streaming data sequentially, starting w/ row 1, then accessing each column from 1:N, then row 2, and each column from 1:N again, etc.
+"""
+function accesspatern end
+
 accesspattern(x) = Sequential()
 
 const EMPTY_REFERENCE = UInt8[]
@@ -163,9 +174,9 @@ reference(x) = EMPTY_REFERENCE
 # Sink(sch::Data.Schema, S, append, args...; reference::Vector{UInt8}=UInt8[], kwargs...)
 # Sink(sink, sch::Data.Schema, S, append; reference::Vector{UInt8}=UInt8[], )
 """
-`Data.streamtypes{T<:Data.Sink}(::Type{T})` => Vector{StreamType}
+`Data.streamtypes(::Type{Sink})` => Vector{StreamType}
 
-Returns a list of `Data.StreamType`s that the sink is able to receive; the order of elements indicates the sink's streaming preference
+Returns a vector of `Data.StreamType`s that the sink is able to receive; the order of elements indicates the sink's streaming preference
 """
 function streamtypes end
 
@@ -326,7 +337,6 @@ function generate_loop(::Type{Val{knownrows}}, ::Type{S}, inner_loop) where {kno
     # println(macroexpand(loop))
     return loop
 end
-
 
 @generated function Data.stream!(source::So, ::Type{S}, sink::Si,
                         source_schema::Schema{R, T1}, sinkrowoffset,
