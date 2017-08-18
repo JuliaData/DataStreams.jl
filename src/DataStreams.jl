@@ -5,7 +5,7 @@ export Data
 
 module Data
 
-using Compat, Nulls, WeakRefStrings
+using Nulls, WeakRefStrings
 
 struct NullException <: Exception
     msg::String
@@ -47,13 +47,13 @@ in the `Data.Schema`. Both of these type parameters provide valuable information
 mutable struct Schema{R, T}
     # types::T               # Julia types of columns
     header::Vector{String}   # column names
-    rows::(?Int)             # number of rows in the dataset
+    rows::(Union{Int,Null})             # number of rows in the dataset
     cols::Int                # number of columns in a dataset
     metadata::Dict           # for any other metadata we'd like to keep around (not used for '==' operation)
     index::Dict{String, Int} # maps column names as Strings to their index # in `header` and `types`
 end
 
-function Schema(types=(), header=["Column$i" for i = 1:length(types)], rows::(?Integer)=0, metadata::Dict=Dict())
+function Schema(types=(), header=["Column$i" for i = 1:length(types)], rows::(Union{Integer,Null})=0, metadata::Dict=Dict())
     !isnull(rows) && rows < 0 && throw(ArgumentError("Invalid # of rows for Data.Schema; use `null` to indicate an unknown # of rows"))
     types2 = Tuple(types)
     header2 = String[string(x) for x in header]
@@ -61,7 +61,7 @@ function Schema(types=(), header=["Column$i" for i = 1:length(types)], rows::(?I
     cols != length(types2) && throw(ArgumentError("length(header): $(length(header2)) must == length(types): $(length(types2))"))
     return Schema{rows != null, Tuple{types2...}}(header2, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header2)))
 end
-Schema(types, rows::(?Integer), metadata::Dict=Dict()) = Schema(types, ["Column$i" for i = 1:length(types)], rows, metadata)
+Schema(types, rows::Union{Integer,Null}, metadata::Dict=Dict()) = Schema(types, ["Column$i" for i = 1:length(types)], rows, metadata)
 
 header(sch::Schema) = sch.header
 types(sch::Schema{R, T}) where {R, T} = Tuple(T.parameters)
@@ -86,19 +86,19 @@ function transform(sch::Data.Schema{R, T}, transforms::Dict{Int, <:Function}, we
     transforms2 = ((get(transforms, x, identity) for x = 1:length(types))...)
     newtypes = ((Core.Inference.return_type(transforms2[x], (types[x],)) for x = 1:length(types))...)
     if !weakref
-        newtypes = map(x->x >: Null ? ifelse(Nulls.T(x) <: WeakRefString, ?String, x) : ifelse(x <: WeakRefString, String, x), newtypes)
+        newtypes = map(x->x >: Null ? ifelse(Nulls.T(x) <: WeakRefString, Union{String, Null}, x) : ifelse(x <: WeakRefString, String, x), newtypes)
     end
     return Schema(newtypes, Data.header(sch), size(sch, 1), sch.metadata), transforms2
 end
 transform(sch::Data.Schema, transforms::Dict{String, <:Function}, s) = transform(sch, Dict{Int, Function}(sch[x]=>f for (x, f) in transforms), s)
 
 # Data.StreamTypes
-@compat abstract type StreamType end
+abstract type StreamType end
 struct Field <: StreamType end
 struct Column <: StreamType end
 
 # Data.Source Interface
-@compat abstract type Source end
+abstract type Source end
 
 # Required methods
 function schema end
@@ -168,7 +168,7 @@ where the type retruns a `Vector{UInt8}` that represents a memory block that sho
 reference(x) = EMPTY_REFERENCE
 
 # Data.Sink Interface
-@compat abstract type Sink end
+abstract type Sink end
 
 # Required methods
 # Sink(sch::Data.Schema, S, append, args...; reference::Vector{UInt8}=UInt8[], kwargs...)
@@ -300,7 +300,7 @@ function inner_loop(::Type{Val{N}}, ::Type{S}, ::Type{Val{homogeneous}}, ::Type{
             end
         end
     end
-    println(macroexpand(loop))
+    # println(macroexpand(loop))
     return loop
 end
 
@@ -393,7 +393,7 @@ Data.streamtypes(::Type{<:NamedTuple}) = [Data.Column, Data.Field]
 Data.weakrefstrings(::Type{<:NamedTuple}) = true
 
 allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
-allocate(::Type{T}, rows, ref) where {T <: ?WeakRefString} = WeakRefStringArray(ref, T, rows)
+allocate(::Type{T}, rows, ref) where {T <: Union{WeakRefString,Null}} = WeakRefStringArray(ref, T, rows)
 
 # NamedTuple doesn't allow duplicate names, so make sure there are no duplicates
 function makeunique(names::Vector{String})
