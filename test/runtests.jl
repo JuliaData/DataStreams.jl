@@ -1,6 +1,9 @@
 using Base.Test, DataStreams, Nulls
 
-if isdefined(Core, :NamedTuple)
+import Base: ==
+==(a::DataStreams.Data.Schema, b::DataStreams.Data.Schema) = DataStreams.Data.types(a) == DataStreams.Data.types(b) && DataStreams.Data.header(a) == DataStreams.Data.header(b) && size(a) == size(b)
+
+@static if isdefined(Core, :NamedTuple)
 
 mutable struct Source{T}
     sch::DataStreams.Data.Schema
@@ -15,9 +18,6 @@ DataStreams.Data.streamfrom(s::Source, ::Type{DataStreams.Data.Field}, ::Type{T}
 mutable struct Sink{T}
     nt::T
 end
-
-import Base: ==
-==(a::DataStreams.Data.Schema, b::DataStreams.Data.Schema) = DataStreams.Data.types(a) == DataStreams.Data.types(b) && DataStreams.Data.header(a) == DataStreams.Data.header(b) && size(a) == size(b)
 
 I = (id = Int64[1, 2, 3, 4, 5],
 firstname = (Union{String, Null})["Benjamin", "Wayne", "Sean", "Charles", null],
@@ -154,7 +154,7 @@ sch2, trans = DataStreams.Data.transform(sch, Dict("col1"=>sin), false)
 
 end # @testset "Data.transform"
 
-if isdefined(Core, :NamedTuple)
+@static if isdefined(Core, :NamedTuple)
 
 @testset "Data.stream!" begin
 
