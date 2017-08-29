@@ -47,7 +47,7 @@ in the `Data.Schema`. Both of these type parameters provide valuable information
 mutable struct Schema{R, T}
     # types::T               # Julia types of columns
     header::Vector{String}   # column names
-    rows::(Union{Int,Null})             # number of rows in the dataset
+    rows::(Union{Int,Null})  # number of rows in the dataset
     cols::Int                # number of columns in a dataset
     metadata::Dict           # for any other metadata we'd like to keep around (not used for '==' operation)
     index::Dict{String, Int} # maps column names as Strings to their index # in `header` and `types`
@@ -205,16 +205,17 @@ function Data.stream!(source::So, ::Type{Si}, args...;
                         filter::Function=TRUE,
                         columns::Vector=[],
                         kwargs...) where {So, Si}
-    sinkstreamtypes = Data.streamtypes(Si)
+    S = datatype(Si)
+    sinkstreamtypes = Data.streamtypes(S)
     for sinkstreamtype in sinkstreamtypes
-        if Data.streamtype(So, sinkstreamtype)
+        if Data.streamtype(datatype(So), sinkstreamtype)
             source_schema = Data.schema(source)
-            wk = weakrefstrings(Si)
+            wk = weakrefstrings(S)
             sink_schema, transforms2 = Data.transform(source_schema, transforms, wk)
             if wk
-                sink = Si(sink_schema, sinkstreamtype, append, args...; reference=Data.reference(source), kwargs...)
+                sink = S(sink_schema, sinkstreamtype, append, args...; reference=Data.reference(source), kwargs...)
             else
-                sink = Si(sink_schema, sinkstreamtype, append, args...; kwargs...)
+                sink = S(sink_schema, sinkstreamtype, append, args...; kwargs...)
             end
             sourcerows = size(source_schema, 1)
             sinkrows = size(sink_schema, 1)
@@ -230,16 +231,17 @@ function Data.stream!(source::So, sink::Si;
                         transforms::Dict=Dict{Int, Function}(),
                         filter::Function=TRUE,
                         columns::Vector=[]) where {So, Si}
-    sinkstreamtypes = Data.streamtypes(Si)
+    S = datatype(Si)
+    sinkstreamtypes = Data.streamtypes(S)
     for sinkstreamtype in sinkstreamtypes
-        if Data.streamtype(So, sinkstreamtype)
+        if Data.streamtype(datatype(So), sinkstreamtype)
             source_schema = Data.schema(source)
-            wk = weakrefstrings(Si)
+            wk = weakrefstrings(S)
             sink_schema, transforms2 = transform(source_schema, transforms, wk)
             if wk
-                sink = Si(sink, sink_schema, sinkstreamtype, append; reference=Data.reference(source))
+                sink = S(sink, sink_schema, sinkstreamtype, append; reference=Data.reference(source))
             else
-                sink = Si(sink, sink_schema, sinkstreamtype, append)
+                sink = S(sink, sink_schema, sinkstreamtype, append)
             end
             sourcerows = size(source_schema, 1)
             sinkrows = size(sink_schema, 1)
@@ -382,22 +384,25 @@ function Data.isdone(source::Table, row, col)
     return Data.isdone(source, row, col, cols == 0 ? 0 : length(getfield(source, 1)), cols)
 end
 
-Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Column}) = true
-Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Field}) = true
+# We support both kinds of streaming
+Data.streamtype(::Type{NamedTuple}, ::Type{Data.Column}) = true
+Data.streamtype(::Type{NamedTuple}, ::Type{Data.Field}) = true
 
 @inline Data.streamfrom(source::Table, ::Type{Data.Column}, ::Type{T}, row, col) where {T} = source[col]
 @inline Data.streamfrom(source::Table, ::Type{Data.Field}, ::Type{T}, row, col) where {T} = source[col][row]
 
-# NamedTuple Data.Sink
-Data.streamtypes(::Type{<:NamedTuple}) = [Data.Column, Data.Field]
-Data.weakrefstrings(::Type{<:NamedTuple}) = true
+# NamedTuple Data.Sink implementation
+# we support both kinds of streaming to our type
+Data.streamtypes(::Type{NamedTuple}) = [Data.Column, Data.Field]
+# we support streaming WeakRefStrings
+Data.weakrefstrings(::Type{NamedTuple}) = true
 
 allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
 allocate(::Type{T}, rows, ref) where {T <: Union{WeakRefString,Null}} = WeakRefStringArray(ref, T, rows)
 
 # NamedTuple doesn't allow duplicate names, so make sure there are no duplicates
 function makeunique(names::Vector{String})
-    nms = Vector{Symbol}(names)
+    nms = [Symbol(nm) for nm in names]
     seen = Set{Symbol}()
     for (i, x) in enumerate(nms)
         x in seen ? setindex!(nms, Symbol("$(x)_$i"), i) : push!(seen, x)
@@ -441,7 +446,8 @@ function NamedTuple(sch::Data.Schema{R}, ::Type{S}=Data.Field,
     return sink
 end
 
-function (::Type{N})(sink::N, sch::Data.Schema, ::Type{S}, append::Bool; reference::Vector{UInt8}=UInt8[]) where {N <: NamedTuple, S}
+# Constructor that takes an existing NamedTuple sink, just pass it to our mega-constructor above
+function NamedTuple(sink::Table, sch::Data.Schema, ::Type{S}, append::Bool; reference::Vector{UInt8}=UInt8[]) where {S}
     return NamedTuple(sch, S, append, sink; reference=reference)
 end
 

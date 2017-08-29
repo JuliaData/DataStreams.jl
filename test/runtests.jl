@@ -41,9 +41,9 @@ K_L = Source(DataStreams.Data.Schema(collect(map(eltype, K)), nms(K), 1), K);
 K_M = Source(DataStreams.Data.Schema(collect(map(eltype, K)), nms(K), null), K);
 
 Sink(sch::DataStreams.Data.Schema, S, append, args...; reference::Vector{UInt8}=UInt8[]) = Sink(NamedTuple(sch, S, append, args...; reference=reference))
-(::Type{T})(sink, sch::DataStreams.Data.Schema, S, append; reference::Vector{UInt8}=UInt8[]) where {T <: Sink} = Sink(NamedTuple(sink.nt, sch, S, append; reference=reference))
-DataStreams.Data.streamtypes(::Type{<:Sink}) = [DataStreams.Data.Column, DataStreams.Data.Field]
-DataStreams.Data.weakrefstrings(::Type{<:Sink}) = true
+Sink(sink, sch::DataStreams.Data.Schema, S, append; reference::Vector{UInt8}=UInt8[]) = Sink(NamedTuple(sink.nt, sch, S, append; reference=reference))
+DataStreams.Data.streamtypes(::Type{Sink}) = [DataStreams.Data.Column, DataStreams.Data.Field]
+DataStreams.Data.weakrefstrings(::Type{Sink}) = true
 DataStreams.Data.streamto!(sink::Sink, ::Type{DataStreams.Data.Field}, val, row, col) =
 (C = getfield(sink.nt, col); row > length(C) ? push!(C, val) : setindex!(C, val, row); return)
 DataStreams.Data.streamto!(sink::Sink, ::Type{DataStreams.Data.Column}, column, col) =
@@ -174,7 +174,7 @@ end # @testset "Data.transform"
 @test_throws ArgumentError DataStreams.Data.stream!(I_L, Sink, I)
 
 ## Data.Field
-DataStreams.Data.streamtype(::Type{<:Source}, ::Type{DataStreams.Data.Field}) = true
+DataStreams.Data.streamtype(::Type{Source}, ::Type{DataStreams.Data.Field}) = true
 # A, C, E, G, I, L: append to constructed Sink w/ transforms via Data.Field w/ Source=I_J
 source = I_L
 sink = Sink(deepcopy(I))
