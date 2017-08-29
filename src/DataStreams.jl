@@ -102,7 +102,7 @@ abstract type Source end
 
 # Required methods
 """
-Data.schema(s::Source) => Data.Schema
+`Data.schema(s::Source) => Data.Schema`
 
 Return the `Data.Schema` of a source, which describes the # of rows & columns, as well as the column types of a dataset.
 Some sources like `CSV.Source` or `SQLite.Source` store the `Data.Schema` directly in the type, whereas
@@ -118,7 +118,7 @@ See `?Data.Schema` for more details on how to work with the type.
 """
 function schema end
 """
-Data.isdone(source, row, col) => Bool
+`Data.isdone(source, row, col) => Bool`
 
 Checks whether a source can stream additional fields/columns for a desired
 `row` and `col` intersection. Used during the streaming process, especially for sources
@@ -126,11 +126,11 @@ that have an unknown # of rows, to detect when a source has been exhausted of da
 
 Data.Source types must at least implement:
 
-Data.isdone(source::S, row::Int, col::Int)
+`Data.isdone(source::S, row::Int, col::Int)`
 
 If more convenient/performant, they can also implement:
 
-Data.isdone(source::S, row::Int, col::Int, rows::Union{Int, Null}, cols::Int)
+`Data.isdone(source::S, row::Int, col::Int, rows::Union{Int, Null}, cols::Int)`
 
 where `rows` and `cols` are the size of the `source`'s schema when streaming.
 
@@ -143,7 +143,7 @@ function isdone end
 isdone(source, row, col, rows, cols) = isdone(source, row, col)
 
 """
-`Data.streamtype{T<:Data.Source, S<:Data.StreamType}(::Type{T}, ::Type{S})` => Bool
+`Data.streamtype{T<:Data.Source, S<:Data.StreamType}(::Type{T}, ::Type{S}) => Bool`
 
 Indicates whether the source `T` supports streaming of type `S`. To be overloaded by individual sources according to supported `Data.StreamType`s.
 This is used in the streaming process to determine the compatability of streaming from a specific source to a specific sink.
@@ -164,7 +164,7 @@ Data.streamtype(::Type{MyPkg.Source}, ::Type{Data.Column}) = true
 function streamtype end
 
 """
-Data.reset!(source)
+`Data.reset!(source)`
 
 Resets a source into a state that allows streaming its data again.
 For example, for `CSV.Source`, the internal buffer is "seek"ed back to the start position of
@@ -175,8 +175,9 @@ function reset! end
 """
 Data.Source types must implement one of the following:
 
-Data.streamfrom(source, ::Type{Data.Field}, ::Type{T}, row::Int, col::Int) where {T}
-Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, col::Int) where {T}
+`Data.streamfrom(source, ::Type{Data.Field}, ::Type{T}, row::Int, col::Int) where {T}`
+
+`Data.streamfrom(source, ::Type{Data.Column}, ::Type{T}, col::Int) where {T}`
 
 Performs the actually streaming of data "out" of a data source. For `Data.Field` streaming, the single field value of type `T`
 at the intersection of `row` and `col` is returned. For `Data.Column` streaming, the column # `col` with element type `T` is returned.
@@ -211,7 +212,7 @@ A `CSV.Source` however, is streaming the contents of a file, where rows must be 
 
 By default, sources are assumed to have a `Sequential` access pattern.
 """
-function accesspatern end
+function accesspattern end
 
 accesspattern(x) = Sequential()
 
@@ -219,7 +220,7 @@ const EMPTY_REFERENCE = UInt8[]
 """
 Data.Source types can optionally implement
 
-Data.reference(x::Source) => Vector{UInt8}
+`Data.reference(x::Source) => Vector{UInt8}`
 
 where the type retruns a `Vector{UInt8}` that represents a memory block that should be kept in reference for WeakRefStringArrays.
 
@@ -288,7 +289,7 @@ the column headers should be written.
 abstract type Sink end
 
 """
-`Data.streamtypes(::Type{[Sink]})` => Vector{StreamType}
+`Data.streamtypes(::Type{[Sink]}) => Vector{StreamType}`
 
 Returns a vector of `Data.StreamType`s that the sink is able to receive; the order of elements indicates the sink's streaming preference
 
@@ -305,8 +306,9 @@ Data.streamtypes(::Type{MyPkg.Sink}) = [Data.Column, Data.Field] # put Data.Colu
 function streamtypes end
 
 """
-Data.streamto!(sink, S::Type{StreamType}, val, row, col)
-Data.streamto!(sink, S::Type{StreamType}, val, row, col, knownrows)
+`Data.streamto!(sink, S::Type{StreamType}, val, row, col)`
+
+`Data.streamto!(sink, S::Type{StreamType}, val, row, col, knownrows)`
 
 Streams data to a sink. `S` is the type of streaming (`Data.Field` or `Data.Column`). `val` is the value (single field or column)
 to be streamed to the sink. `row` and `col` indicate where the data should be streamed/stored.
@@ -322,7 +324,7 @@ Data.streamto!(sink, S, val, row, col) = Data.streamto!(sink, S, val, col)
 
 # Optional methods
 """
-Data.cleanup!(sink)
+`Data.cleanup!(sink)`
 
 Sometimes errors occur during the streaming of data from source to sink. Some sinks may be left in
 an undesired state if an error were to occur mid-streaming. `Data.cleanup!` allows a sink to "clean up"
@@ -340,7 +342,7 @@ The default definition is: `Data.cleanup!(sink) = nothing`
 function cleanup! end
 
 """
-Data.close!(sink) => sink
+`Data.close!(sink) => sink`
 
 A function to "close" a sink to streaming. Some sinks require a definitive time where data can be "committed",
 `Data.close!` allows a sink to perform any necessary resource management or commits to ensure all data that has been
@@ -360,7 +362,7 @@ cleanup!(sink) = nothing
 close!(sink) = sink
 
 """
-Data.weakrefstrings(sink) => Bool
+`Data.weakrefstrings(sink) => Bool`
 
 If a sink is able to appropriately handle `WeakRefString` objects, it can define:
 ```julia
@@ -375,8 +377,9 @@ weakrefstrings(x) = false
 
 # Data.stream!
 """
-Data.stream!(source, sink; append::Bool=false, transforms=Dict())
-Data.stream!(source, ::Type{Sink}, args...; append::Bool=false, transforms=Dict(), kwargs...)
+`Data.stream!(source, sink; append::Bool=false, transforms=Dict())`
+
+`Data.stream!(source, ::Type{Sink}, args...; append::Bool=false, transforms=Dict(), kwargs...)`
 
 Stream data from source to sink. The 1st definition assumes already constructed source & sink and takes two optional keyword arguments:
 
