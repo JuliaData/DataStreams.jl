@@ -17,6 +17,62 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "index.html#DataStreams.Data.schema",
+    "page": "Home",
+    "title": "DataStreams.Data.schema",
+    "category": "Function",
+    "text": "Data.schema(s::Source) => Data.Schema\n\nReturn the Data.Schema of a source, which describes the # of rows & columns, as well as the column types of a dataset. Some sources like CSV.Source or SQLite.Source store the Data.Schema directly in the type, whereas others like DataFrame compute the schema on the fly.\n\nThe Data.Schema of a source is used in various ways during the streaming process:\n\nThe # of rows and if they are known are used to generate the inner streaming loop\nThe # of columns determine if the innermost streaming loop can be unrolled automatically or not\nThe types of the columns are used in loop unrolling to generate efficient and type-stable streaming\n\nSee ?Data.Schema for more details on how to work with the type.\n\n\n\n"
+},
+
+{
+    "location": "index.html#DataStreams.Data.isdone",
+    "page": "Home",
+    "title": "DataStreams.Data.isdone",
+    "category": "Function",
+    "text": "Data.isdone(source, row, col) => Bool\n\nChecks whether a source can stream additional fields/columns for a desired row and col intersection. Used during the streaming process, especially for sources that have an unknown # of rows, to detect when a source has been exhausted of data.\n\nData.Source types must at least implement:\n\nData.isdone(source::S, row::Int, col::Int)\n\nIf more convenient/performant, they can also implement:\n\nData.isdone(source::S, row::Int, col::Int, rows::Union{Int, Null}, cols::Int)\n\nwhere rows and cols are the size of the source's schema when streaming.\n\nA simple example of how a DataFrame implements this is:\n\nData.isdone(df::DataFrame, row, col, rows, cols) = row > rows || col > cols\n\n\n\n"
+},
+
+{
+    "location": "index.html#DataStreams.Data.streamtype",
+    "page": "Home",
+    "title": "DataStreams.Data.streamtype",
+    "category": "Function",
+    "text": "Data.streamtype{T<:Data.Source, S<:Data.StreamType}(::Type{T}, ::Type{S}) => Bool\n\nIndicates whether the source T supports streaming of type S. To be overloaded by individual sources according to supported Data.StreamTypes. This is used in the streaming process to determine the compatability of streaming from a specific source to a specific sink. It also helps in determining the preferred streaming method, when matched up with the results of Data.streamtypes(s::Sink).\n\nFor example, if MyPkg.Source supported Data.Field streaming, I would define:\n\nData.streamtype(::Type{MyPkg.Source}, ::Type{Data.Field}) = true\n\nand/or for Data.Column streaming:\n\nData.streamtype(::Type{MyPkg.Source}, ::Type{Data.Column}) = true\n\n\n\n"
+},
+
+{
+    "location": "index.html#DataStreams.Data.reset!",
+    "page": "Home",
+    "title": "DataStreams.Data.reset!",
+    "category": "Function",
+    "text": "Data.reset!(source)\n\nResets a source into a state that allows streaming its data again. For example, for CSV.Source, the internal buffer is \"seek\"ed back to the start position of the csv data (after the column name headers). For SQLite.Source, the source SQL query is re-executed.\n\n\n\n"
+},
+
+{
+    "location": "index.html#DataStreams.Data.streamfrom",
+    "page": "Home",
+    "title": "DataStreams.Data.streamfrom",
+    "category": "Function",
+    "text": "Data.Source types must implement one of the following:\n\nData.streamfrom(source, ::Type{Data.Field}, ::Type{T}, row::Int, col::Int) where {T}\n\nData.streamfrom(source, ::Type{Data.Column}, ::Type{T}, col::Int) where {T}\n\nPerforms the actually streaming of data \"out\" of a data source. For Data.Field streaming, the single field value of type T at the intersection of row and col is returned. For Data.Column streaming, the column # col with element type T is returned.\n\nFor Data.Column, a source can also implement:\n\nData.streamfrom(source, ::Type{Data.Field}, ::Type{T}, row::Int, col::Int) where {T}\n\nwhere row indicates the # of rows that have already been streamed from the source.\n\n\n\n"
+},
+
+{
+    "location": "index.html#DataStreams.Data.accesspattern",
+    "page": "Home",
+    "title": "DataStreams.Data.accesspattern",
+    "category": "Function",
+    "text": "Data.accesspatern(source) => Data.RandomAccess | Data.Sequential\n\nreturns the data access pattern for a Data.Source.\n\nRandomAccess indicates that a source supports streaming data (via calls to Data.streamfrom) with arbitrary row/column values in any particular order.\n\nSequential indicates that the source only supports streaming data sequentially, starting w/ row 1, then accessing each column from 1:N, then row 2, and each column from 1:N again, etc.\n\nFor example, a DataFrame holds all data in-memory, and thus supports easy random access in any order. A CSV.Source however, is streaming the contents of a file, where rows must be read sequentially, and each column sequentially within each rows.\n\nBy default, sources are assumed to have a Sequential access pattern.\n\n\n\n"
+},
+
+{
+    "location": "index.html#DataStreams.Data.reference",
+    "page": "Home",
+    "title": "DataStreams.Data.reference",
+    "category": "Function",
+    "text": "Data.Source types can optionally implement\n\nData.reference(x::Source) => Vector{UInt8}\n\nwhere the type retruns a Vector{UInt8} that represents a memory block that should be kept in reference for WeakRefStringArrays.\n\nIn many streaming situations, the minimizing of data copying/movement is ideal. Some sources can provide in-memory access to their data in the form of a Vector{UInt8}, i.e. a single byte vector, that sinks can \"point to\" when streaming, instead of needing to always copy all the data. In particular, the WeakRefStrings package provides utilities for creating \"string types\" that don't actually hold their own data, but instead just \"point\" to data that lives elsewhere. As Strings can be some of the most expensive data structures to copy and move around, this provides excellent performance gains in some cases when the sink is able to leverage this alternative structure.\n\n\n\n"
+},
+
+{
     "location": "index.html#Data.Source-Interface-1",
     "page": "Home",
     "title": "Data.Source Interface",
@@ -45,7 +101,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Home",
     "title": "DataStreams.Data.streamto!",
     "category": "Function",
-    "text": "Data.streamto!(sink, S::Type{StreamType}, val, row, col) Data.streamto!(sink, S::Type{StreamType}, val, row, col, knownrows)\n\nStreams data to a sink. S is the type of streaming (Data.Field or Data.Column). val is the value (single field or column) to be streamed to the sink. row and col indicate where the data should be streamed/stored.\n\nA sink may optionally define the method that also accepts the knownrows argument, which will be true or false, indicating whether the source streaming has a known # of rows or not. This can be useful for sinks that may know how to pre-allocate space in the cases where the source can tell the # of rows, or in the case of unknown # of rows, may need to stream the data in differently.\n\n\n\n"
+    "text": "Data.streamto!(sink, S::Type{StreamType}, val, row, col)\n\nData.streamto!(sink, S::Type{StreamType}, val, row, col, knownrows)\n\nStreams data to a sink. S is the type of streaming (Data.Field or Data.Column). val is the value (single field or column) to be streamed to the sink. row and col indicate where the data should be streamed/stored.\n\nA sink may optionally define the method that also accepts the knownrows argument, which will be true or false, indicating whether the source streaming has a known # of rows or not. This can be useful for sinks that may know how to pre-allocate space in the cases where the source can tell the # of rows, or in the case of unknown # of rows, may need to stream the data in differently.\n\n\n\n"
 },
 
 {
@@ -85,7 +141,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Home",
     "title": "DataStreams.Data.stream!",
     "category": "Function",
-    "text": "Data.stream!(source, sink; append::Bool=false, transforms=Dict()) Data.stream!(source, ::Type{Sink}, args...; append::Bool=false, transforms=Dict(), kwargs...)\n\nStream data from source to sink. The 1st definition assumes already constructed source & sink and takes two optional keyword arguments:\n\nappend::Bool=false: whether the data from source should be appended to sink\ntransforms::Dict: A dict with mappings between column # or name (Int or String) to a \"transform\" function. For Data.Field streaming, the transform function should be of the form f(x::T) => y::S, i.e. takes a single input of type T and returns a single value of type S. For Data.Column streaming, it should be of the form f(x::AbstractVector{T}) => y::AbstractVector{S}, i.e. take an AbstractVector with eltype T and return another AbstractVector with eltype S.\n\nFor the 2nd definition, the Sink type itself is passed as the 2nd argument (::Type{Sink}) and is constructed \"on-the-fly\", being passed args... and kwargs... like Sink(args...; kwargs...).\n\nWhile users are free to call Data.stream! themselves, oftentimes, packages want to provide even higher-level convenience functions.\n\nAn example of of these higher-level convenience functions are from CSV.jl:\n\nfunction CSV.read(fullpath::Union{AbstractString,IO}, sink::Type=DataFrame, args...; append::Bool=false, transforms::Dict=Dict{Int,Function}(), kwargs...)\n    source = CSV.Source(fullpath; kwargs...)\n    sink = Data.stream!(source, sink, args...; append=append, transforms=transforms, kwargs...)\n    return Data.close!(sink)\nend\n\nfunction CSV.read{T}(fullpath::Union{AbstractString,IO}, sink::T; append::Bool=false, transforms::Dict=Dict{Int,Function}(), kwargs...)\n    source = CSV.Source(fullpath; kwargs...)\n    sink = Data.stream!(source, sink; append=append, transforms=transforms)\n    return Data.close!(sink)\nend\n\nIn this example, CSV.jl defines it's own high-level function for reading from a CSV.Source. In these examples, a CSV.Source is constructed using the fullpath argument, along w/ any extra kwargs.... The sink can be provided as a type with args... and kwargs... that will be passed to its DataStreams constructor, like Sink(sch, streamtype, append, args...; kwargs...); otherwise, an already-constructed Sink can be provided directly (2nd example).\n\nOnce the source is constructed, the data is streamed via the call to Data.stream(source, sink; append=append, transforms=transforms), with the sink being returned.\n\nAnd finally, to \"finish\" the streaming process, Data.close!(sink) is closed, which returns the finalized sink. Note that Data.stream!(source, sink) could be called multiple times with different sources and the same sink, most likely with append=true being passed, to enable the accumulation of several sources into a single sink. A single Data.close!(sink) method should be called to officially close or commit the final sink.\n\n\n\n"
+    "text": "Data.stream!(source, sink; append::Bool=false, transforms=Dict())\n\nData.stream!(source, ::Type{Sink}, args...; append::Bool=false, transforms=Dict(), kwargs...)\n\nStream data from source to sink. The 1st definition assumes already constructed source & sink and takes two optional keyword arguments:\n\nappend::Bool=false: whether the data from source should be appended to sink\ntransforms::Dict: A dict with mappings between column # or name (Int or String) to a \"transform\" function. For Data.Field streaming, the transform function should be of the form f(x::T) => y::S, i.e. takes a single input of type T and returns a single value of type S. For Data.Column streaming, it should be of the form f(x::AbstractVector{T}) => y::AbstractVector{S}, i.e. take an AbstractVector with eltype T and return another AbstractVector with eltype S.\n\nFor the 2nd definition, the Sink type itself is passed as the 2nd argument (::Type{Sink}) and is constructed \"on-the-fly\", being passed args... and kwargs... like Sink(args...; kwargs...).\n\nWhile users are free to call Data.stream! themselves, oftentimes, packages want to provide even higher-level convenience functions.\n\nAn example of of these higher-level convenience functions are from CSV.jl:\n\nfunction CSV.read(fullpath::Union{AbstractString,IO}, sink::Type=DataFrame, args...; append::Bool=false, transforms::Dict=Dict{Int,Function}(), kwargs...)\n    source = CSV.Source(fullpath; kwargs...)\n    sink = Data.stream!(source, sink, args...; append=append, transforms=transforms, kwargs...)\n    return Data.close!(sink)\nend\n\nfunction CSV.read{T}(fullpath::Union{AbstractString,IO}, sink::T; append::Bool=false, transforms::Dict=Dict{Int,Function}(), kwargs...)\n    source = CSV.Source(fullpath; kwargs...)\n    sink = Data.stream!(source, sink; append=append, transforms=transforms)\n    return Data.close!(sink)\nend\n\nIn this example, CSV.jl defines it's own high-level function for reading from a CSV.Source. In these examples, a CSV.Source is constructed using the fullpath argument, along w/ any extra kwargs.... The sink can be provided as a type with args... and kwargs... that will be passed to its DataStreams constructor, like Sink(sch, streamtype, append, args...; kwargs...); otherwise, an already-constructed Sink can be provided directly (2nd example).\n\nOnce the source is constructed, the data is streamed via the call to Data.stream(source, sink; append=append, transforms=transforms), with the sink being returned.\n\nAnd finally, to \"finish\" the streaming process, Data.close!(sink) is closed, which returns the finalized sink. Note that Data.stream!(source, sink) could be called multiple times with different sources and the same sink, most likely with append=true being passed, to enable the accumulation of several sources into a single sink. A single Data.close!(sink) method should be called to officially close or commit the final sink.\n\n\n\n"
 },
 
 {
