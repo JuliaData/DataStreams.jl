@@ -59,7 +59,7 @@ function Schema(types=(), header=["Column$i" for i = 1:length(types)], rows::(Un
     header2 = String[string(x) for x in header]
     cols = length(header2)
     cols != length(types2) && throw(ArgumentError("length(header): $(length(header2)) must == length(types): $(length(types2))"))
-    return Schema{rows != null, Tuple{types2...}}(header2, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header2)))
+    return Schema{!isnull(rows), Tuple{types2...}}(header2, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header2)))
 end
 Schema(types, rows::Union{Integer,Null}, metadata::Dict=Dict()) = Schema(types, ["Column$i" for i = 1:length(types)], rows, metadata)
 
