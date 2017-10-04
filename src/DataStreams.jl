@@ -30,7 +30,7 @@ A `Data.Schema` describes a tabular dataset, i.e. a set of named, typed columns 
 `Data.Schema` are indexable via column names to get the number of that column in the `Data.Schema`
 
 ```julia
-julia> sch = Data.Schema(["column1"], [Int], 10)
+julia> sch = Data.Schema([Int], ["column1"], 10)
 Data.Schema:
 rows: 10	cols: 1
 Columns:
@@ -623,6 +623,8 @@ Data.weakrefstrings(::Type{NamedTuple}) = true
 
 # convenience methods for "allocating" a single column for streaming
 allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
+# allocate(::Type{T}, rows, ref) where {T <: Union{CategoricalValue, Null}} =
+#     CategoricalArray{CategoricalArrays.unwrap_catvalue_type(T)}(rows)
 # special case for WeakRefStrings
 allocate(::Type{T}, rows, ref) where {T <: Union{WeakRefString,Null}} = WeakRefStringArray(ref, T, rows)
 
