@@ -31,8 +31,8 @@ rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
 hired = (Union{Date, Null})[Date("2011-07-07"), Date("2016-02-19"), null, Date("2002-01-05"), Date("2008-05-15")],
 fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
 )
-J = (; :_0=>["0"], (Symbol("_$i")=>[i] for i = 1:501)...);
-K = (; (Symbol("_$i")=>[i] for i = 1:501)...);
+J = NamedTuple{(:_0, (Symbol("_$i") for i = 1:501)...)}((["0"], ([i] for i =1:501)...))
+K = NamedTuple{((Symbol("_$i") for i = 1:501)...)}((([i] for i = 1:501)...))
 
 nms(::NamedTuple{names}) where {names} = names
 
