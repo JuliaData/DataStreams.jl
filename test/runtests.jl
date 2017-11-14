@@ -1,9 +1,11 @@
 using Base.Test, DataStreams, Nulls
 
-import Base: ==
-==(a::DataStreams.Data.Schema, b::DataStreams.Data.Schema) = DataStreams.Data.types(a) == DataStreams.Data.types(b) && DataStreams.Data.header(a) == DataStreams.Data.header(b) && size(a) == size(b)
+@static if !isdefined(Core, :NamedTuple)
+    using NamedTuples
+end
 
-@static if isdefined(Core, :NamedTuple)
+import Base: ==
+==(a::DataStreams.Data.Schema, b::DataStreams.Data.Schema) = DataStreams.Data.types(a) == DataStreams.Data.types(b) && DataStreams.Data.header(a) == DataStreams.Data.header(b) && isequal(size(a), size(b))
 
 mutable struct Source{T}
     sch::DataStreams.Data.Schema
@@ -19,6 +21,8 @@ mutable struct Sink{T}
     nt::T
 end
 
+@static if isdefined(Core, :NamedTuple)
+
 I = (id = Int64[1, 2, 3, 4, 5],
 firstname = (Union{String, Null})["Benjamin", "Wayne", "Sean", "Charles", null],
 lastname = String["Chavez", "Burke", "Richards", "Long", "Rose"],
@@ -31,6 +35,24 @@ J = (; :_0=>["0"], (Symbol("_$i")=>[i] for i = 1:501)...);
 K = (; (Symbol("_$i")=>[i] for i = 1:501)...);
 
 nms(::NamedTuple{names}) where {names} = names
+
+else # isdefined
+
+I = @NT(id = Int64[1, 2, 3, 4, 5],
+firstname = (Union{String, Null})["Benjamin", "Wayne", "Sean", "Charles", null],
+lastname = String["Chavez", "Burke", "Richards", "Long", "Rose"],
+salary = (Union{Float64, Null})[null, 46134.1, 45046.2, 30555.6, 88894.1],
+rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
+hired = (Union{Date, Null})[Date("2011-07-07"), Date("2016-02-19"), null, Date("2002-01-05"), Date("2008-05-15")],
+fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
+)
+J = NamedTuples.make_tuple(vcat([:_0], (Symbol("_$i") for i = 1:501)...))(["0"], ([i] for i =1:501)...)
+K = NamedTuples.make_tuple([Symbol("_$i") for i = 1:501])(([i] for i = 1:501)...)
+
+nms(::NT) where {NT <: NamedTuple} = fieldnames(NT)
+
+end # isdefined
+
 I_L = Source(DataStreams.Data.Schema(collect(map(eltype, I)), nms(I), 5), I);
 I_M = Source(DataStreams.Data.Schema(collect(map(eltype, I)), nms(I), null), I);
 
@@ -48,8 +70,6 @@ DataStreams.Data.streamto!(sink::Sink, ::Type{DataStreams.Data.Field}, val, row,
 (C = getfield(sink.nt, col); row > length(C) ? push!(C, val) : setindex!(C, val, row); return)
 DataStreams.Data.streamto!(sink::Sink, ::Type{DataStreams.Data.Column}, column, col) =
 append!(getfield(sink.nt, col), column)
-
-end # isdefined
 
 @testset "DataStreams" begin
 
@@ -88,7 +108,7 @@ sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
 @test getT(sch) == Tuple{Int}
 
 sch = DataStreams.Data.Schema((String,), ["col1"], null)
-@test size(sch) == (null, 1)
+@test isequal(size(sch), (null, 1))
 @test DataStreams.Data.header(sch) == String["col1"]
 @test DataStreams.Data.types(sch) == (String,)
 @test getR(sch) == false
@@ -153,8 +173,6 @@ sch2, trans = DataStreams.Data.transform(sch, Dict("col1"=>sin), false)
 @test trans == (sin,)
 
 end # @testset "Data.transform"
-
-@static if isdefined(Core, :NamedTuple)
 
 @testset "Data.stream!" begin
 
@@ -301,7 +319,6 @@ sch = DataStreams.Data.schema(sink.nt)
 @test sink.nt._1 == [2]
 
 end # @testset "Data.stream!"
-end # isdefined
 
 # @testset "DataStreams NamedTuple" begin
 #
