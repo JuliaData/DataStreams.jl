@@ -692,7 +692,7 @@ function NamedTuple(sch::Data.Schema{R}, ::Type{S}=Data.Field,
         names = makeunique(Data.header(sch))
 
         sink = @static if isdefined(Core, :NamedTuple)
-                Base.namedtuple(NamedTuple{names}, (allocate(types[i], rows, reference) for i = 1:length(types))...)
+                NamedTuple{names}((allocate(types[i], rows, reference) for i = 1:length(types)))
             else
                 NamedTuples.make_tuple(collect(names))((allocate(types[i], rows, reference) for i = 1:length(types))...)
             end
