@@ -260,7 +260,7 @@ sch = DataStreams.Data.schema(sink.nt)
 DataStreams.Data.streamtype(::Type{<:Source}, ::Type{DataStreams.Data.Column}) = true
 source = K_M
 sink = Sink(deepcopy(K))
-transforms = Dict(2=>x->x+1)
+transforms = Dict(2=>x->x.+1)
 Data.stream!(source, sink; transforms=transforms)
 
 sch = DataStreams.Data.schema(sink.nt)
@@ -308,7 +308,7 @@ sch = DataStreams.Data.schema(sink.nt)
 # B, D, E, H, J, L: replace otf Sink w/ transforms via Data.Field w/ Source=J_L
 source = J_L
 sink = Sink(deepcopy(J))
-transforms = Dict(2=>x->x+1)
+transforms = Dict(2=>x->x.+1)
 Data.stream!(source, Sink, sink.nt; transforms=transforms)
 
 sch = DataStreams.Data.schema(sink.nt)
