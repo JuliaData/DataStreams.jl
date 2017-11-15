@@ -159,7 +159,7 @@ and/or for `Data.Column` streaming:
 
 ```julia
 Data.streamtype(::Type{MyPkg.Source}, ::Type{Data.Column}) = true
-``` 
+```
 """
 function streamtype end
 
@@ -589,6 +589,9 @@ end
     return r
 end
 
+
+# Source/Sink with NamedTuples
+
 if isdefined(Core, :NamedTuple)
 
 # Basically, a NamedTuple with any # of AbstractVector elements, accessed by column name
@@ -601,6 +604,22 @@ function Data.schema(df::NamedTuple{names, T}) where {names, T}
                         collect(map(string, names)), length(df) == 0 ? 0 : length(getfield(df, 1)))
 end
 
+else # if isdefined(Core, :NamedTuple)
+
+using NamedTuples
+
+# Constraint relaxed for compatability; NamedTuples.NamedTuple does not have parameters
+const Table = NamedTuple
+
+# NamedTuple Data.Source implementation
+# compute Data.Schema on the fly
+function Data.schema(df::NamedTuple)
+    return Data.Schema(Type[eltype(A) for A in values(df)],
+                        collect(map(string, keys(df))), length(df) == 0 ? 0 : length(getfield(df, 1)))
+end
+
+end # if isdefined(Core, :NamedTuple)
+
 Data.isdone(source::Table, row, col, rows, cols) = row > rows || col > cols
 function Data.isdone(source::Table, row, col)
     cols = length(source)
@@ -608,8 +627,8 @@ function Data.isdone(source::Table, row, col)
 end
 
 # We support both kinds of streaming
-Data.streamtype(::Type{NamedTuple}, ::Type{Data.Column}) = true
-Data.streamtype(::Type{NamedTuple}, ::Type{Data.Field}) = true
+Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Column}) = true
+Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Field}) = true
 
 # Data.streamfrom is pretty simple, just return the cell or column
 @inline Data.streamfrom(source::Table, ::Type{Data.Column}, ::Type{T}, row, col) where {T} = source[col]
@@ -617,9 +636,9 @@ Data.streamtype(::Type{NamedTuple}, ::Type{Data.Field}) = true
 
 # NamedTuple Data.Sink implementation
 # we support both kinds of streaming to our type
-Data.streamtypes(::Type{NamedTuple}) = [Data.Column, Data.Field]
+Data.streamtypes(::Type{<:NamedTuple}) = [Data.Column, Data.Field]
 # we support streaming WeakRefStrings
-Data.weakrefstrings(::Type{NamedTuple}) = true
+Data.weakrefstrings(::Type{<:NamedTuple}) = true
 
 # convenience methods for "allocating" a single column for streaming
 allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
@@ -671,7 +690,12 @@ function NamedTuple(sch::Data.Schema{R}, ::Type{S}=Data.Field,
         # for Data.Column or unknown # of rows in Data.Field, we only ever append!, so just allocate empty columns
         rows = ifelse(S == Data.Column, 0, ifelse(!R, 0, sch.rows))
         names = makeunique(Data.header(sch))
-        sink = Base.namedtuple(NamedTuple{names}, (allocate(types[i], rows, reference) for i = 1:length(types))...)
+
+        sink = @static if isdefined(Core, :NamedTuple)
+                NamedTuple{names}(Tuple(allocate(types[i], rows, reference) for i = 1:length(types)))
+            else
+                NamedTuples.make_tuple(collect(names))((allocate(types[i], rows, reference) for i = 1:length(types))...)
+            end
         sch.rows = rows
     end
     return sink
@@ -693,7 +717,7 @@ end
 @inline Data.streamto!(sink::Table, ::Type{Data.Column}, column, row, col::Int, knownrows) =
     append!(getfield(sink, col), column)
 
-end # if isdefined(Core, :NamedTuple)
+
 end # module Data
 
 end # module DataStreams
