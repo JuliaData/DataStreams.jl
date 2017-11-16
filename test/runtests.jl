@@ -255,6 +255,18 @@ sch = DataStreams.Data.schema(sink.nt)
 @test sink.nt._1 == [1]
 @test sink.nt._2 == [3]
 
+# Test unparameterized NamedTuple sink directly
+# B, D, F, G, J, M
+source = J_M
+sink = Data.stream!(source, NamedTuple)
+
+sch = DataStreams.Data.schema(sink)
+@test size(sch) == (1, 502)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...)
+@test sink._0 == ["0"]
+@test sink._1 == [1]
+
 ## Data.Column
 # A, D, E, H, K, M: replace constructed Sink w/ transforms via Data.Column w/ Source=K_M
 DataStreams.Data.streamtype(::Type{<:Source}, ::Type{DataStreams.Data.Column}) = true
@@ -317,6 +329,17 @@ sch = DataStreams.Data.schema(sink.nt)
 @test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...)
 @test sink.nt._0 == ["0"]
 @test sink.nt._1 == [2]
+
+# Test unparameterized NamedTuple sink directly
+# B, D, F, H, I, M
+source = I_M
+sink = Data.stream!(source, NamedTuple)
+
+sch = DataStreams.Data.schema(sink)
+@test size(sch) == (5, 7)
+@test DataStreams.Data.header(sch) == ["id","firstname","lastname","salary","rate","hired","fired"]
+@test DataStreams.Data.types(sch) == (Int64, Union{String, Null}, String, Union{Float64, Null}, Float64, Union{Date, Null}, DateTime)
+@test sink.id == [1,2,3,4,5]
 
 end # @testset "Data.stream!"
 
