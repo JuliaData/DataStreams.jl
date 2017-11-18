@@ -399,7 +399,7 @@ function CSV.read(fullpath::Union{AbstractString,IO}, sink::Type=DataFrame, args
     return Data.close!(sink)
 end
 
-function CSV.read{T}(fullpath::Union{AbstractString,IO}, sink::T; append::Bool=false, transforms::Dict=Dict{Int,Function}(), kwargs...)
+function CSV.read(fullpath::Union{AbstractString,IO}, sink::T; append::Bool=false, transforms::Dict=Dict{Int,Function}(), kwargs...) where T
     source = CSV.Source(fullpath; kwargs...)
     sink = Data.stream!(source, sink; append=append, transforms=transforms)
     return Data.close!(sink)
