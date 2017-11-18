@@ -426,6 +426,16 @@ In addition, any `Data.Source` can be iterated via the `Data.rows(source)` funct
 """
 function stream! end
 
+skipfield!(source, S, T, row, col) = Data.accesspattern(source) == Data.RandomAccess() ? nothing : Data.streamfrom(source, S, T, row, col)
+function skiprow!(source, S, T, row, col)
+    Data.accesspattern(source) == Data.RandomAccess() && return
+    cols = size(Data.schema(source), 2)
+    for i = col:cols
+        Data.streamfrom(source, S, T, row, i)
+    end
+    return
+end
+
 datatype(T) = eval(Base.datatype_module(Base.unwrap_unionall(T)), Base.datatype_name(T))
 
 # generic public definitions
@@ -601,6 +611,7 @@ end
 end
 
 include("namedtuples.jl")
+include("query.jl")
 
 end # module Data
 
