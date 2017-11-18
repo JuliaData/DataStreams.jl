@@ -1,4 +1,4 @@
-using Base.Test, DataStreams, Nulls
+using Base.Test, DataStreams, Missings
 
 @static if !isdefined(Core, :NamedTuple)
     using NamedTuples
@@ -13,7 +13,7 @@ mutable struct Source{T}
 end
 
 DataStreams.Data.schema(s::Source) = s.sch
-DataStreams.Data.isdone(s::Source, row, col, rows, cols) = col > cols || (isnull(rows) ? row > length(s.nt[col]) : row > rows)
+DataStreams.Data.isdone(s::Source, row, col, rows, cols) = col > cols || (ismissing(rows) ? row > length(s.nt[col]) : row > rows)
 DataStreams.Data.streamfrom(s::Source, ::Type{DataStreams.Data.Column}, ::Type{T}, row, col) where {T} = s.nt[col]
 DataStreams.Data.streamfrom(s::Source, ::Type{DataStreams.Data.Field}, ::Type{T}, row, col) where {T} = s.nt[col][row]
 
@@ -24,11 +24,11 @@ end
 @static if isdefined(Core, :NamedTuple)
 
 I = (id = Int64[1, 2, 3, 4, 5],
-firstname = (Union{String, Null})["Benjamin", "Wayne", "Sean", "Charles", null],
+firstname = (Union{String, Missing})["Benjamin", "Wayne", "Sean", "Charles", missing],
 lastname = String["Chavez", "Burke", "Richards", "Long", "Rose"],
-salary = (Union{Float64, Null})[null, 46134.1, 45046.2, 30555.6, 88894.1],
+salary = (Union{Float64, Missing})[missing, 46134.1, 45046.2, 30555.6, 88894.1],
 rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
-hired = (Union{Date, Null})[Date("2011-07-07"), Date("2016-02-19"), null, Date("2002-01-05"), Date("2008-05-15")],
+hired = (Union{Date, Missing})[Date("2011-07-07"), Date("2016-02-19"), missing, Date("2002-01-05"), Date("2008-05-15")],
 fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
 )
 J = NamedTuple{(:_0, (Symbol("_$i") for i = 1:501)...)}((["0"], ([i] for i =1:501)...))
@@ -39,11 +39,11 @@ nms(::NamedTuple{names}) where {names} = names
 else # isdefined
 
 I = @NT(id = Int64[1, 2, 3, 4, 5],
-firstname = (Union{String, Null})["Benjamin", "Wayne", "Sean", "Charles", null],
+firstname = (Union{String, Missing})["Benjamin", "Wayne", "Sean", "Charles", missing],
 lastname = String["Chavez", "Burke", "Richards", "Long", "Rose"],
-salary = (Union{Float64, Null})[null, 46134.1, 45046.2, 30555.6, 88894.1],
+salary = (Union{Float64, Missing})[missing, 46134.1, 45046.2, 30555.6, 88894.1],
 rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
-hired = (Union{Date, Null})[Date("2011-07-07"), Date("2016-02-19"), null, Date("2002-01-05"), Date("2008-05-15")],
+hired = (Union{Date, Missing})[Date("2011-07-07"), Date("2016-02-19"), missing, Date("2002-01-05"), Date("2008-05-15")],
 fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
 )
 J = NamedTuples.make_tuple(vcat([:_0], (Symbol("_$i") for i = 1:501)...))(["0"], ([i] for i =1:501)...)
@@ -54,13 +54,13 @@ nms(::NT) where {NT <: NamedTuple} = fieldnames(NT)
 end # isdefined
 
 I_L = Source(DataStreams.Data.Schema(collect(map(eltype, I)), nms(I), 5), I);
-I_M = Source(DataStreams.Data.Schema(collect(map(eltype, I)), nms(I), null), I);
+I_M = Source(DataStreams.Data.Schema(collect(map(eltype, I)), nms(I), missing), I);
 
 J_L = Source(DataStreams.Data.Schema(collect(map(eltype, J)), nms(J), 1), J);
-J_M = Source(DataStreams.Data.Schema(collect(map(eltype, J)), nms(J), null), J);
+J_M = Source(DataStreams.Data.Schema(collect(map(eltype, J)), nms(J), missing), J);
 
 K_L = Source(DataStreams.Data.Schema(collect(map(eltype, K)), nms(K), 1), K);
-K_M = Source(DataStreams.Data.Schema(collect(map(eltype, K)), nms(K), null), K);
+K_M = Source(DataStreams.Data.Schema(collect(map(eltype, K)), nms(K), missing), K);
 
 Sink(sch::DataStreams.Data.Schema, S, append, args...; reference::Vector{UInt8}=UInt8[]) = Sink(NamedTuple(sch, S, append, args...; reference=reference))
 Sink(sink, sch::DataStreams.Data.Schema, S, append; reference::Vector{UInt8}=UInt8[]) = Sink(NamedTuple(sink.nt, sch, S, append; reference=reference))
@@ -107,8 +107,8 @@ sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
 @test getR(sch) == true
 @test getT(sch) == Tuple{Int}
 
-sch = DataStreams.Data.Schema((String,), ["col1"], null)
-@test isequal(size(sch), (null, 1))
+sch = DataStreams.Data.Schema((String,), ["col1"], missing)
+@test size(sch) === (missing, 1)
 @test DataStreams.Data.header(sch) == String["col1"]
 @test DataStreams.Data.types(sch) == (String,)
 @test getR(sch) == false
@@ -135,7 +135,7 @@ sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), true)
 @test sch == sch2
 @test trans == (identity,)
 
-sch = DataStreams.Data.Schema((Int, Float64, String,), ["col1", "col2", "col3"], null)
+sch = DataStreams.Data.Schema((Int, Float64, String,), ["col1", "col2", "col3"], missing)
 sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), true)
 @test sch == sch2
 @test trans == (identity, identity, identity)
@@ -147,23 +147,23 @@ sch2, trans = DataStreams.Data.transform(sch, Dict(1=>f), true)
 @test DataStreams.Data.types(sch2) == (String,)
 @test trans == (f,)
 
-sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], null)
+sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], missing)
 f = x->parse(Int, x)
 sch2, trans = DataStreams.Data.transform(sch, Dict("col3"=>f), true)
 @test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
 @test DataStreams.Data.types(sch2) == (Int, Float64, Int)
 @test trans == (identity, identity, f)
 
-sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], null)
+sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], missing)
 sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), false)
 @test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
 @test DataStreams.Data.types(sch2) == (Int, Float64, String)
 @test trans == (identity, identity, identity)
 
-sch = DataStreams.Data.Schema((Union{String, Null},), ["col1"])
+sch = DataStreams.Data.Schema((Union{String, Missing},), ["col1"])
 sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), false)
 @test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Union{String, Null},)
+@test DataStreams.Data.types(sch2) == (Union{String, Missing},)
 @test trans == (identity,)
 
 sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
@@ -202,7 +202,7 @@ DataStreams.Data.stream!(source, sink; append=true, transforms=transforms)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (10, 7)
 @test DataStreams.Data.header(sch) == ["id","firstname","lastname","salary","rate","hired","fired"]
-@test DataStreams.Data.types(sch) == (Int64, Union{String, Null}, String, Union{Float64, Null}, Float64, Union{Date, Null}, DateTime)
+@test DataStreams.Data.types(sch) == (Int64, Union{String, Missing}, String, Union{Float64, Missing}, Float64, Union{Date, Missing}, DateTime)
 @test sink.nt.id == [1,2,3,4,5,2,3,4,5,6]
 
 # A, C, F, G, J, L: append to constructed Sink w/o transforms via Data.Field w/ Source=J_L
@@ -303,7 +303,7 @@ Data.stream!(source, Sink, sink.nt)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (5, 7)
 @test DataStreams.Data.header(sch) == ["id","firstname","lastname","salary","rate","hired","fired"]
-@test DataStreams.Data.types(sch) == (Int64, Union{String, Null}, String, Union{Float64, Null}, Float64, Union{Date, Null}, DateTime)
+@test DataStreams.Data.types(sch) == (Int64, Union{String, Missing}, String, Union{Float64, Missing}, Float64, Union{Date, Missing}, DateTime)
 @test sink.nt.id == [1,2,3,4,5]
 
 # B, D, F, H, I, L: replace otf Sink w/o transforms via Data.Column w/ Source=I_L
@@ -314,7 +314,7 @@ Data.stream!(source, Sink, sink.nt)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (5, 7)
 @test DataStreams.Data.header(sch) == ["id","firstname","lastname","salary","rate","hired","fired"]
-@test DataStreams.Data.types(sch) == (Int64, Union{String, Null}, String, Union{Float64, Null}, Float64, Union{Date, Null}, DateTime)
+@test DataStreams.Data.types(sch) == (Int64, Union{String, Missing}, String, Union{Float64, Missing}, Float64, Union{Date, Missing}, DateTime)
 @test sink.nt.id == [1,2,3,4,5]
 
 # B, D, E, H, J, L: replace otf Sink w/ transforms via Data.Field w/ Source=J_L
@@ -338,7 +338,7 @@ sink = Data.stream!(source, NamedTuple)
 sch = DataStreams.Data.schema(sink)
 @test size(sch) == (5, 7)
 @test DataStreams.Data.header(sch) == ["id","firstname","lastname","salary","rate","hired","fired"]
-@test DataStreams.Data.types(sch) == (Int64, Union{String, Null}, String, Union{Float64, Null}, Float64, Union{Date, Null}, DateTime)
+@test DataStreams.Data.types(sch) == (Int64, Union{String, Missing}, String, Union{Float64, Missing}, Float64, Union{Date, Missing}, DateTime)
 @test sink.id == [1,2,3,4,5]
 
 end # @testset "Data.stream!"
