@@ -5,11 +5,7 @@ export Data
 
 module Data
 
-using Nulls, WeakRefStrings
-
-struct NullException <: Exception
-    msg::String
-end
+using Missings, WeakRefStrings
 
 # Data.Schema
 """
@@ -19,13 +15,13 @@ A `Data.Schema` describes a tabular dataset, i.e. a set of named, typed columns 
 `Data.Schema` provides the following accessible properties:
 
  * `Data.header(schema)` to return the header/column names in a `Data.Schema`
- * `Data.types(schema)` to return the column types in a `Data.Schema`; `Nullable{T}` indicates columns that may contain missing data (null values)
- * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`; note that # of rows may be `null`, meaning unknown
+ * `Data.types(schema)` to return the column types in a `Data.Schema`; `Union{T, Missing}` indicates columns that may contain missing data (`missing` values)
+ * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`; note that # of rows may be `nothing`, meaning unknown
 
 `Data.Schema` has the following constructors:
 
  * `Data.Schema()`: create an "emtpy" schema with no rows, no columns, and no column names
- * `Data.Schema(types[, header, rows, meta::Dict])`: column element types are provided as a tuple or vector; column names provided as an iterable; # of rows can be an Int or `null` to indicate unknown # of rows
+ * `Data.Schema(types[, header, rows, meta::Dict])`: column element types are provided as a tuple or vector; column names provided as an iterable; # of rows can be an Int or `missing` to indicate unknown # of rows
 
 `Data.Schema` are indexable via column names to get the number of that column in the `Data.Schema`
 
@@ -41,27 +37,27 @@ julia> sch["column1"]
 ```
 
 **Developer note**: the full type definition is `Data.Schema{R, T}` where the `R` type parameter will be `true` or `false`, indicating
-whether the # of rows are known (i.e not `null`), respectively. The `T` type parameter is a `Tuple{A, B, ...}` representing the column element types
+whether the # of rows are known (i.e not `missing`), respectively. The `T` type parameter is a `Tuple{A, B, ...}` representing the column element types
 in the `Data.Schema`. Both of these type parameters provide valuable information that may be useful when constructing `Sink`s or streaming data.
 """
 mutable struct Schema{R, T}
     # types::T               # Julia types of columns
     header::Vector{String}   # column names
-    rows::(Union{Int,Null})  # number of rows in the dataset
+    rows::Union{Int, Missing}# number of rows in the dataset
     cols::Int                # number of columns in a dataset
     metadata::Dict           # for any other metadata we'd like to keep around (not used for '==' operation)
     index::Dict{String, Int} # maps column names as Strings to their index # in `header` and `types`
 end
 
-function Schema(types=(), header=["Column$i" for i = 1:length(types)], rows::(Union{Integer,Null})=0, metadata::Dict=Dict())
-    !isnull(rows) && rows < 0 && throw(ArgumentError("Invalid # of rows for Data.Schema; use `null` to indicate an unknown # of rows"))
+function Schema(types=(), header=["Column$i" for i = 1:length(types)], rows::Union{Integer,Missing}=0, metadata::Dict=Dict())
+    !ismissing(rows) && rows < 0 && throw(ArgumentError("Invalid # of rows for Data.Schema; use `nothing` to indicate an unknown # of rows"))
     types2 = Tuple(types)
     header2 = String[string(x) for x in header]
     cols = length(header2)
     cols != length(types2) && throw(ArgumentError("length(header): $(length(header2)) must == length(types): $(length(types2))"))
-    return Schema{!isnull(rows), Tuple{types2...}}(header2, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header2)))
+    return Schema{!ismissing(rows), Tuple{types2...}}(header2, rows, cols, metadata, Dict(n=>i for (i, n) in enumerate(header2)))
 end
-Schema(types, rows::Union{Integer,Null}, metadata::Dict=Dict()) = Schema(types, ["Column$i" for i = 1:length(types)], rows, metadata)
+Schema(types, rows::Union{Integer,Missing}, metadata::Dict=Dict()) = Schema(types, ["Column$i" for i = 1:length(types)], rows, metadata)
 
 header(sch::Schema) = sch.header
 types(sch::Schema{R, T}) where {R, T} = Tuple(T.parameters)
@@ -86,7 +82,7 @@ function transform(sch::Data.Schema{R, T}, transforms::Dict{Int, <:Function}, we
     transforms2 = ((get(transforms, x, identity) for x = 1:length(types))...)
     newtypes = ((Core.Inference.return_type(transforms2[x], (types[x],)) for x = 1:length(types))...)
     if !weakref
-        newtypes = map(x->x >: Null ? ifelse(Nulls.T(x) <: WeakRefString, Union{String, Null}, x) : ifelse(x <: WeakRefString, String, x), newtypes)
+        newtypes = map(x->x >: Missing ? ifelse(Missings.T(x) <: WeakRefString, Union{String, Missing}, x) : ifelse(x <: WeakRefString, String, x), newtypes)
     end
     return Schema(newtypes, Data.header(sch), size(sch, 1), sch.metadata), transforms2
 end
@@ -130,7 +126,7 @@ Data.Source types must at least implement:
 
 If more convenient/performant, they can also implement:
 
-`Data.isdone(source::S, row::Int, col::Int, rows::Union{Int, Null}, cols::Int)`
+`Data.isdone(source::S, row::Int, col::Int, rows::Union{Int, Missing}, cols::Int)`
 
 where `rows` and `cols` are the size of the `source`'s schema when streaming.
 
@@ -441,7 +437,7 @@ function Data.stream!(source::So, ::Type{Si}, args...;
             end
             sourcerows = size(source_schema, 1)
             sinkrows = size(sink_schema, 1)
-            sinkrowoffset = ifelse(append, ifelse(isnull(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
+            sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
             return Data.stream!(source, sinkstreamtype, sink, source_schema, sinkrowoffset, transforms2, filter, columns)
         end
     end
@@ -467,7 +463,7 @@ function Data.stream!(source::So, sink::Si;
             end
             sourcerows = size(source_schema, 1)
             sinkrows = size(sink_schema, 1)
-            sinkrowoffset = ifelse(append, ifelse(isnull(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
+            sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
             return Data.stream!(source, sinkstreamtype, sink, source_schema, sinkrowoffset, transforms2, filter, columns)
         end
     end
@@ -494,8 +490,8 @@ function inner_loop(::Type{Val{N}}, ::Type{S}, ::Type{Val{homogeneous}}, ::Type{
         loop = quote
             Base.@nexprs $N col->begin
                 val_col = Data.streamfrom(source, $S, sourcetypes[col], row, col)
-                # hack to improve codegen due to inability of inference to inline Union{T, Null} val_col here
-                if val_col isa Null
+                # hack to improve codegen due to inability of inference to inline Union{T, Missing} val_col here
+                if val_col isa Missing
                     Data.streamto!(sink, $S, transforms[col](val_col), sinkrowoffset + row, col, $knownrows)
                 else
                     Data.streamto!(sink, $S, transforms[col](val_col), sinkrowoffset + row, col, $knownrows)
@@ -508,7 +504,7 @@ function inner_loop(::Type{Val{N}}, ::Type{S}, ::Type{Val{homogeneous}}, ::Type{
         loop = quote
             for col = 1:$N
                 val = Data.streamfrom(source, $S, $T, row, col)
-                if val isa Null
+                if val isa Missing
                     Data.streamto!(sink, $S, transforms[col](val), sinkrowoffset + row, col, $knownrows)
                 else
                     Data.streamto!(sink, $S, transforms[col](val), sinkrowoffset + row, col, $knownrows)
@@ -530,7 +526,7 @@ end
 
 @inline function streamto!(sink, ::Type{S}, source, ::Type{T}, row, sinkrowoffset, col::Int, f::Function, knownrows) where {S, T}
     val = Data.streamfrom(source, S, T, row, col)
-    if val isa Null
+    if val isa Missing
         Data.streamto!(sink, S, f(val), sinkrowoffset + row, col, knownrows)
     else
         Data.streamto!(sink, S, f(val), sinkrowoffset + row, col, knownrows)
@@ -571,7 +567,7 @@ end
     T = isempty(types) ? Any : types[1]
     N = Val{length(types)}
     knownrows = R ? Val{true} : Val{false}
-    RR = R ? Int : Null
+    RR = R ? Int : Missing
     r = quote
         rows, cols = size(source_schema)::Tuple{$RR, Int}
         Data.isdone(source, 1, 1, rows, cols) && return sink
@@ -642,10 +638,10 @@ Data.weakrefstrings(::Type{<:NamedTuple}) = true
 
 # convenience methods for "allocating" a single column for streaming
 allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
-# allocate(::Type{T}, rows, ref) where {T <: Union{CategoricalValue, Null}} =
+# allocate(::Type{T}, rows, ref) where {T <: Union{CategoricalValue, Missing}} =
 #     CategoricalArray{CategoricalArrays.unwrap_catvalue_type(T)}(rows)
 # special case for WeakRefStrings
-allocate(::Type{T}, rows, ref) where {T <: Union{WeakRefString,Null}} = WeakRefStringArray(ref, T, rows)
+allocate(::Type{T}, rows, ref) where {T <: Union{WeakRefString,Missing}} = WeakRefStringArray(ref, T, rows)
 
 # NamedTuple doesn't allow duplicate names, so make sure there are no duplicates in our column names
 function makeunique(names::Vector{String})
@@ -671,7 +667,7 @@ function NamedTuple(sch::Data.Schema{R}, ::Type{S}=Data.Field,
             sch.rows = sinkrows
             # dont' need to do anything because:
               # for Data.Column, we just append columns anyway (see Data.streamto! below)
-              # for Data.Field, the # of rows in the source are unknown (isnull(rows)), so we'll just push! in streamto!
+              # for Data.Field, the # of rows in the source are unknown (ismissing(rows)), so we'll just push! in streamto!
         else
             # need to adjust the existing sink
             # similar to above, for Data.Column or unknown # of rows for Data.Field, we'll append!/push!, so we empty! the columns
