@@ -3,6 +3,7 @@ if !isdefined(Core, :NamedTuple)
 end
 
 # Source/Sink with NamedTuple, both row and column oriented
+"A default row-oriented \"table\" that supports both the `Data.Source` and `Data.Sink` interfaces. Can be used like `Data.stream!(source, Data.RowTable)`. It is represented as a Vector of NamedTuples."
 const RowTable{T} = Vector{T} where {T <: NamedTuple}
 Data.isdone(source::RowTable, row, col, rows, cols) = row > rows || col > cols
 function Data.isdone(source::RowTable, row, col)
@@ -23,6 +24,7 @@ Data.streamtypes(::Type{Array}) = [Data.Row]
 if isdefined(Core, :NamedTuple)
 
 # Basically, a NamedTuple with any # of AbstractVector elements, accessed by column name
+"A default column-oriented \"table\" that supports both the `Data.Source` and `Data.Sink` interfaces. Can be used like `Data.stream!(source, Data.Table). It is represented as a NamedTuple of AbstractVectors.`"
 const Table = NamedTuple{names, T} where {names, T <: NTuple{N, AbstractVector{S} where S}} where {N}
 
 function Data.schema(rt::RowTable{NamedTuple{names, T}}) where {names, T}
@@ -39,6 +41,7 @@ end
 else # if isdefined(Core, :NamedTuple)
 
 # Constraint relaxed for compatability; NamedTuples.NamedTuple does not have parameters
+"A default column-oriented \"table\" that supports both the `Data.Source` and `Data.Sink` interfaces. Can be used like `Data.stream!(source, Data.Table). It is represented as a NamedTuple of AbstractVectors.`"
 const Table = NamedTuple
 
 function Data.schema(rt::RowTable{T}) where {T}
@@ -194,6 +197,7 @@ function Base.length(rows::Rows)
     return size(sch, 1)
 end
 
+"Returns a NamedTuple-iterator of any `Data.Source`"
 function rows(source::S) where {S}
     sch = Data.schema(source)
     names = makeunique(Data.header(sch))

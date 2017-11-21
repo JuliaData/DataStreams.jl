@@ -301,6 +301,12 @@ If, on the other hand, my sink also supported `Data.Column` streaming, and `Data
 ```julia
 Data.streamtypes(::Type{MyPkg.Sink}) = [Data.Column, Data.Field] # put Data.Column first to indicate preference
 ```
+
+A third option is a sink that operates on entire rows at a time, in which case I could define:
+```julia
+Data.streamtypes(::Type{MyPkg.Sink}) = [Data.Row]
+```
+The subsequent `Data.streamto!` method would then require the signature `Data.streamto!(sink::MyPkg.Sink, ::Type{Data.Row}, vals::NamedTuple, row, col, knownrows`
 """
 function streamtypes end
 
@@ -309,10 +315,10 @@ function streamtypes end
 
 `Data.streamto!(sink, S::Type{StreamType}, val, row, col, knownrows)`
 
-Streams data to a sink. `S` is the type of streaming (`Data.Field` or `Data.Column`). `val` is the value (single field or column)
+Streams data to a sink. `S` is the type of streaming (`Data.Field`, `Data.Row`, or `Data.Column`). `val` is the value or values (single field, row as a NamedTuple, or column, respectively)
 to be streamed to the sink. `row` and `col` indicate where the data should be streamed/stored.
 
-A sink may optionally define the method that also accepts the `knownrows` argument, which will be `true` or `false`,
+A sink may optionally define the method that also accepts the `knownrows` argument, which will be `Val{true}` or `Val{false}`,
 indicating whether the source streaming has a known # of rows or not. This can be useful for sinks that
 may know how to pre-allocate space in the cases where the source can tell the # of rows, or in the case
 of unknown # of rows, may need to stream the data in differently.
@@ -412,6 +418,11 @@ Once the `source` is constructed, the data is streamed via the call to `Data.str
 
 And finally, to "finish" the streaming process, `Data.close!(sink)` is closed, which returns the finalized sink. Note that `Data.stream!(source, sink)` could be called multiple times with different sources and the same sink,
 most likely with `append=true` being passed, to enable the accumulation of several sources into a single sink. A single `Data.close!(sink)` method should be called to officially close or commit the final sink.
+
+Two "builtin" Source/Sink types that are included with the DataStreams package are the `Data.Table` and `Data.RowTable` types. `Data.Table` is a NamedTuple of AbstractVectors, with column names as NamedTuple fieldnames.
+This type supports both `Data.Field` and `Data.Column` streaming. `Data.RowTable` is just a Vector of NamedTuples, and as such, only supports `Data.Field` streaming.
+
+In addition, any `Data.Source` can be iterated via the `Data.rows(source)` function, which returns a NamedTuple-iterator over the rows of a source. 
 """
 function stream! end
 
