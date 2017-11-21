@@ -343,7 +343,36 @@ sch = DataStreams.Data.schema(sink)
 
 end # @testset "Data.stream!"
 
-# @testset "DataStreams NamedTuple" begin
-#
-# end
+@testset "DataStreams NamedTuple" begin
+
+@static if isdefined(Core, :NamedTuple)
+source = (a=[1,2,3], b=[4.0, 5.0, 6.0], c=["hey", "ho", "neighbor"])
+else
+# 0.6 Vector of NamedTuples testing
+source = @NT(a=[1,2,3], b=[4.0, 5.0, 6.0], c=["hey", "ho", "neighbor"])
+end
+
+sink = Data.stream!(source, Data.RowTable)
+@test Data.header(Data.schema(sink)) == ["a", "b", "c"]
+@test size(Data.schema(sink)) == (3, 3)
+
+sink = Data.stream!(source, sink)
+@test Data.header(Data.schema(sink)) == ["a", "b", "c"]
+@test size(Data.schema(sink)) == (3, 3)
+
+sink = Data.stream!(source, sink, append=true)
+@test Data.header(Data.schema(sink)) == ["a", "b", "c"]
+@test size(Data.schema(sink)) == (6, 3)
+
+sink2 = Data.stream!(sink, Data.RowTable)
+@test Data.header(Data.schema(sink)) == ["a", "b", "c"]
+@test size(Data.schema(sink)) == (6, 3)
+
+rows = Data.rows(source)
+for (i, row) in enumerate(rows)
+    @test row[1] == source[1][i]
+end
+
+end
+
 end # @testset "DataStreams"
