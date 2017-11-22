@@ -82,7 +82,8 @@ allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
 # allocate(::Type{T}, rows, ref) where {T <: Union{CategoricalValue, Missing}} =
 #     CategoricalArray{CategoricalArrays.unwrap_catvalue_type(T)}(rows)
 # special case for WeakRefStrings
-allocate(::Type{T}, rows, ref) where {T <: Union{WeakRefString,Missing}} = WeakRefStringArray(ref, T, rows)
+allocate(::Type{WeakRefString{T}}, rows, ref) where {T} = WeakRefStringArray(ref, WeakRefString{T}, rows)
+allocate(::Type{Union{WeakRefString{T}, Missing}}, rows, ref) where {T} = WeakRefStringArray(ref, Union{WeakRefString{T}, Missing}, rows)
 
 # NamedTuple doesn't allow duplicate names, so make sure there are no duplicates in our column names
 function makeunique(names::Vector{String})
