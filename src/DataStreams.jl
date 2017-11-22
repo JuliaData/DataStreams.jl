@@ -80,8 +80,8 @@ end
 
 function transform(sch::Data.Schema{R, T}, transforms::Dict{Int, <:Function}, weakref) where {R, T}
     types = Data.types(sch)
-    transforms2 = ((get(transforms, x, identity) for x = 1:length(types))...)
-    newtypes = ((Core.Inference.return_type(transforms2[x], (types[x],)) for x = 1:length(types))...)
+    transforms2 = ((get(transforms, x, identity) for x = 1:length(types))...,)
+    newtypes = ((Core.Inference.return_type(transforms2[x], (types[x],)) for x = 1:length(types))...,)
     if !weakref
         newtypes = map(x->x >: Missing ? ifelse(Missings.T(x) <: WeakRefString, Union{String, Missing}, x) : ifelse(x <: WeakRefString, String, x), newtypes)
     end

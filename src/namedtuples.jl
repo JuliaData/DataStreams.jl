@@ -91,7 +91,7 @@ function makeunique(names::Vector{String})
     for (i, x) in enumerate(nms)
         x in seen ? setindex!(nms, Symbol("$(x)_$i"), i) : push!(seen, x)
     end
-    return (nms...)
+    return (nms...,)
 end
 
 function Array(sch::Data.Schema{R}, ::Type{Data.Row}, append::Bool=false, args...) where {R}
