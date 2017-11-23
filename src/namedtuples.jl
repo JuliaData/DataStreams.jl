@@ -111,6 +111,7 @@ function Array(sch::Data.Schema{R}, ::Type{Data.Row}, append::Bool=false, args..
     else
         rows = ifelse(!R, 0, sch.rows)
         names = makeunique(Data.header(sch))
+        # @show rows, names, types
         sink = @static if isdefined(Core, :NamedTuple)
                 Vector{NamedTuple{names, Tuple{types...}}}(rows)
             else
