@@ -7,6 +7,10 @@ module Data
 
 using Missings, WeakRefStrings
 
+if !isdefined(Base, :AbstractRange)
+    const AbstractRange = Range
+end
+
 # Data.Schema
 """
 A `Data.Schema` describes a tabular dataset, i.e. a set of named, typed columns with records as rows

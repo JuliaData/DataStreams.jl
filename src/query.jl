@@ -702,8 +702,7 @@ end
 
 #TODO: figure out non-unrolled case
   # use Any[ ] to store row vals until stream out or push
-#TODO: limit, offset, spread, gather, sample, analytic functions
-    # limit, offset on Query type itself
+#TODO: spread, gather, sample, analytic functions
     # gather: (name=:gathered, gather=true, args=(1,2,3))
     # spread: (spread=1, value=2)
 #TODO: hook up frontend!
