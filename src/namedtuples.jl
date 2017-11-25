@@ -1,5 +1,8 @@
 if !isdefined(Core, :NamedTuple)
     using NamedTuples
+    function Base.get(f::Function, nt::NamedTuple, k)
+        return haskey(nt, k) ? nt[k] : f()
+    end
 end
 
 # Source/Sink with NamedTuple, both row and column oriented

@@ -284,10 +284,6 @@ struct Query{code, S, T, E, L, O}
     columns::T # Tuple{QueryColumn...}, columns are in *output* order (i.e. monotonically increasing by sinkindex)
 end
 
-function Base.get(f::Function, nt::NamedTuple, k)
-    return haskey(nt, k) ? nt[k] : f()
-end
-
 function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
     sch = Data.schema(source)
     types = Data.types(sch)
@@ -446,29 +442,37 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
     end
     rows = have(limit) ? :(min(rows, $(starting_row + limit - 1))) : :rows
 
+    # loop thru sourcecolumns first, to ensure we stream everything we need from the Data.Source
     for (ind, col) in sourcecolumns
         si = sourceindex(col)
         out = sinkindex(col)
         if out == 1
+            # keeping track of the first streamed column is handy later
             firstcol = col
         end
         SF = S == Data.Row ? Data.Field : S
         # streamfrom_inner_loop
+        # we can skip any columns that aren't needed in the resultset; this works because the `sourcecolumns` are in sourceindex order
         while colind < sourceindex(col)
             push!(streamfrom_inner_loop.args, :(Data.skipfield!(source, $SF, $(sourcetypes[colind]), sourcerow, $colind)))
             colind += 1
         end
         colind += 1
         if scalarcomputed(col)
+            # if the column is scalarcomputed, there's no streamfrom, we calculate from previously streamed values and the columns' `args`
+            # this works because scalarcomputed columns are sorted last in `columns`
             computeargs = Tuple((@val c) for c in args(col))
             push!(streamfrom_inner_loop.args, :($(@val si) = calculate(q.columns[$ind].compute, $(computeargs...))))
         elseif !aggcomputed(col)
+            # otherwise, if the column isn't aggcomputed, we just streamfrom
             r = (S == Data.Column && (have(offset) || have(limit))) ? :(sourcerow:$rows) : :sourcerow
             push!(streamfrom_inner_loop.args, :($(@val si) = Data.streamfrom(source, $SF, $(T(col)), $r, $(sourceindex(col)))))
         end
         if scalarfiltered(col)
             if S != Data.Column
                 push!(streamfrom_inner_loop.args, quote
+                    # in the scalar filtering case, we check this value immediately and if false,
+                    # we can skip streaming the rest of the row
                     ff = filter(q.columns[$ind].filter, $(@val si))
                     if !ff
                         Data.skiprow!(source, $SF, sourcerow, $(sourceindex(col) + 1))
@@ -476,6 +480,8 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
                     end
                 end)
             else
+                # Data.Column streaming means we need to accumulate row filters in a `filtered`
+                # Bool array and column values will be indexed by this Bool array later
                 if firstfilter
                     push!(streamfrom_inner_loop.args, :(filtered = fill(true, length($(@val si)))))
                     firstfilter = false
@@ -484,6 +490,7 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
             end
         end
     end
+    # now we loop through query result columns, to build up code blocks for streaming to Data.Sink
     for (ind, col) in enumerate(columns.parameters)
         si = sourceindex(col)
         out = sinkindex(col)
@@ -493,6 +500,7 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
         end
         if !grouped(code)
             if sorted(code)
+                # if we're sorted, then we temporarily buffer all values while streaming in
                 if selected(col)
                     if S == Data.Column && scalarfiltered(code)
                         push!(streamto_inner_loop.args, :(concat!($(@vals out), $(@val si)[filtered])))
@@ -501,6 +509,7 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
                     end
                 end
             else
+                # if we're not sorting or grouping, we can just stream out in the inner loop
                 if selected(col)
                     if S != Data.Row
                         if S == Data.Column && scalarfiltered(code)
