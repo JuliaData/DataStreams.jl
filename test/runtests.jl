@@ -375,4 +375,6 @@ end
 
 end
 
+include("query.jl")
+
 end # @testset "DataStreams"

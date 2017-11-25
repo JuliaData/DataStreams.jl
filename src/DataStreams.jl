@@ -188,6 +188,7 @@ where `row` indicates the # of rows that have already been streamed from the sou
 """
 function streamfrom end
 Data.streamfrom(source, ::Type{Data.Column}, T, row, col) = Data.streamfrom(source, Data.Column, T, col)
+Data.streamfrom(source, ::Type{Data.Column}, T, r::AbstractRange, col) = Data.streamfrom(source, Data.Column, T, first(r), col)[r]
 
 # Generic fallbacks
 Data.streamtype(source, ::Type{Data.Row}) = Data.streamtype(source, Data.Field)
@@ -198,7 +199,7 @@ struct RandomAccess end
 struct Sequential end
 
 """
-`Data.accesspatern(source) => Data.RandomAccess | Data.Sequential`
+`Data.accesspattern(source) => Data.RandomAccess | Data.Sequential`
 
 returns the data access pattern for a Data.Source.
 
@@ -426,14 +427,28 @@ In addition, any `Data.Source` can be iterated via the `Data.rows(source)` funct
 """
 function stream! end
 
+# skipfield! and skiprow! only apply to Data.Field/Data.Row streaming
 skipfield!(source, S, T, row, col) = Data.accesspattern(source) == Data.RandomAccess() ? nothing : Data.streamfrom(source, S, T, row, col)
-function skiprow!(source, S, T, row, col)
+function skiprow!(source, S, row, col)
     Data.accesspattern(source) == Data.RandomAccess() && return
-    cols = size(Data.schema(source), 2)
+    sch = Data.schema(source)
+    cols = size(sch, 2)
+    types = Data.types(sch)
     for i = col:cols
-        Data.streamfrom(source, S, T, row, i)
+        Data.streamfrom(source, S, types[i], row, i)
     end
     return
+end
+function skiprows!(source, S, from, to)
+    Data.accesspattern(source) == Data.RandomAccess() && return
+    sch = Data.schema(source)
+    cols = size(sch, 2)
+    types = Data.types(sch)
+    for row = from:to
+        for col = 1:cols
+            Data.streamfrom(source, S, types[col], row, col)
+        end
+    end
 end
 
 datatype(T) = eval(Base.datatype_module(Base.unwrap_unionall(T)), Base.datatype_name(T))

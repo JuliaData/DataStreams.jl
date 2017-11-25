@@ -13,6 +13,7 @@ end
 Data.streamtype(::Type{Array}, ::Type{Data.Field}) = true
 @inline Data.streamfrom(source::RowTable, ::Type{Data.Field}, ::Type{T}, row, col) where {T} = source[row][col]
 Data.streamtypes(::Type{Array}) = [Data.Row]
+Data.accesspattern(::RowTable) = Data.RandomAccess()
 
 @inline Data.streamto!(sink::RowTable, ::Type{Data.Row}, val, row, col) =
     row > length(sink) ? push!(sink, val) : setindex!(sink, val, row)
@@ -66,10 +67,11 @@ end
 # We support both kinds of streaming
 Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Column}) = true
 Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Field}) = true
+Data.accesspattern(::Table) = Data.RandomAccess()
 
 # Data.streamfrom is pretty simple, just return the cell or column
-@inline Data.streamfrom(source::Table, ::Type{Data.Column}, ::Type{T}, row, col) where {T} = source[col]
-@inline Data.streamfrom(source::Table, ::Type{Data.Field}, ::Type{T}, row, col) where {T} = source[col][row]
+@inline Data.streamfrom(source::Table, ::Type{Data.Column}, T, row::Integer, col::Integer) = source[col]
+@inline Data.streamfrom(source::Table, ::Type{Data.Field}, T, row::Integer, col::Integer) = source[col][row]
 
 # NamedTuple Data.Sink implementation
 # we support both kinds of streaming to our type
