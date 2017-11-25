@@ -1,5 +1,10 @@
 using DataStreams
+@static if isdefined(Core, :NamedTuple)
 df = (a=[1,2,3, 1], b=["hey", "ho", "neighbor", "hi"], c=[4.0, 5.0, 6.6, 6.0], d=[0,0,0,0])
+else
+using NamedTuples
+df = @NT(a=[1,2,3,1], b=["hey", "ho", "neighbor", "hi"], c=[4.0, 5.0, 6.6, 6.0], d=[0,0,0,0])
+end
 # sink = Data.RowTable
 cell(x::Data.Table, row, col) = x[col][row]
 cell(x::Data.RowTable, row, col) = x[row][col]
