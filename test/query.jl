@@ -1,4 +1,4 @@
-using DataStreams
+using DataStreams, Base.Test
 @static if isdefined(Core, :NamedTuple)
 macro NT(args...)
     return esc(:(($(args...),)))

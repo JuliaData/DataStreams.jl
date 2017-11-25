@@ -2,6 +2,8 @@ using Base.Test, DataStreams, Missings
 
 @static if !isdefined(Core, :NamedTuple)
     using NamedTuples
+else
+    using Dates
 end
 
 import Base: ==

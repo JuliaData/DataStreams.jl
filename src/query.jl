@@ -65,7 +65,7 @@ calculate(func, vals::AbstractArray...) = func.(vals...)
             entry = get!(aggregates, aggkeys, tuple($(default...)))
             $((:(push!(entry[$i], aggvalues[$i]);) for i = 1:length(aggvalues.parameters))...)
         end
-        println(q)
+        # println(q)
         return q
     # else
     #     entry = get!(aggregates, aggkeys, Tuple(typeof(val)[] for val in aggvalues))
@@ -108,7 +108,7 @@ end
             entry = get!(aggregates, key, tuple($(default...)))
             $((:(append!(entry[$i], sortedvalues[$i][n:end]);) for i = 1:vallen)...)
         end
-        println(q)
+        # println(q)
         return q
     # else
     #     println("slow path")
@@ -277,9 +277,15 @@ for (f, arg) in (:code=>:c, :T=>:t, :sourceindex=>:so, :sinkindex=>:si, :name=>:
     @eval $f(::QueryColumn{c, t, so, si, n, s, a}) where {c, t, so, si, n, s, a} = $arg
 end
 
+# E type parameter is for a tuple of integers corresponding to
+# column index inputs for aggcomputed columns
 struct Query{code, S, T, E, L, O}
     source::S
     columns::T # Tuple{QueryColumn...}, columns are in *output* order (i.e. monotonically increasing by sinkindex)
+end
+
+function Base.get(f::Function, nt::NamedTuple, k)
+    return haskey(nt, k) ? nt[k] : f()
 end
 
 function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
@@ -295,6 +301,7 @@ function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
     si = 0
     outcol = 1
     for x in actions
+        # if not provided, set sort index order according to order columns are given
         sortindex = get(x, :sortindex) do
             sorted = get(x, :sort, false)
             if sorted
@@ -335,6 +342,30 @@ function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
     return Query{querycode, S, typeof(columns), Tuple(aggcompute_extras), limit, offset}(source, columns)
 end
 
+"""
+    Data.query(source, actions, sink=Data.Table, args...; append::Bool=false, limit=nothing, offset=nothing)
+
+Query a valid DataStreams `Data.Source` according to query `actions` and stream the result into `sink`.
+`limit` restricts the total number of rows streamed out, while `offset` will skip initial N rows.
+`append=true` will cause the `sink` to _accumulate_ the additional query resultset rows instead of replacing any existing rows in the sink.
+
+`actions` is an array of NamedTuples, w/ each NamedTuple including one or more of the following query arguments:
+
+  * `col::Integer`: reference to a source column index
+  * `name`: the name the column should have in the resulting query, if none is provided, it will be auto-generated
+  * `T`: the type of the column, if not provided, it will be inferred from the source
+  * `hide::Bool`: whether the column should be shown in the query resultset; `hide=false` is useful for columns used only for filtering and not needed in the final resultset
+  * `filter::Function`: a function to apply to this column to filter out rows where the result is `false`
+  * `having::Function`: a function to apply to an aggregated column to filter out rows after applying an aggregation function
+  * `compute::Function`: a function to generate a new column, requires a tuple of column indexes `computeargs` that correspond to the function inputs
+  * `computeaggregate::Function`: a function to generate a new aggregated column, requires a tuple of column indexes `computeargs` that correspond to the function inputs
+  * `computeargs::NTuple{N, Int}`: tuple of column indexes to indicate which columns should be used as inputs to a `compute` or `computeaggregate` function
+  * `sort::Bool`: whether this column should be sorted; default `false`
+  * `sortindex::Intger`: by default, a resultset will be sorted by sorted columns in the order they appear in the resultset; `sortindex` allows overriding to indicate a custom sorting order
+  * `sortasc::Bool`: if a column is `sort=true`, whether it should be sorted in ascending order; default `true`
+  * `group::Bool`: whether this column should be grouped, causing other columns to be aggregated
+  * `aggregate::Function`: a function to reduce a columns values based on grouping keys, should be of the form `f(A::AbstractArray) => scalar`
+"""
 function query(source, actions, sink=Table, args...; append::Bool=false, limit::(Integer|Void)=nothing, offset::(Integer|Void)=nothing)
     q = Query(source, actions, limit, offset)
     sink = Data.stream!(q, sink, args...; append=append)
@@ -346,7 +377,6 @@ unwk(::Type{WeakRefString{T}}, wk) where {T} = wk ? WeakRefString{T} : String
 
 "Compute the Data.Schema of the resultset of executing Data.Query `q` against its source"
 function schema(q::Query{code, S, columns, e, limit, offset}, wk=true) where {code, S, columns, e, limit, offset}
-    # TODO: make this less hacky
     types = Tuple(unwk(T(col), wk) for col in columns.parameters if selected(col))
     header = Tuple(String(name(col)) for col in columns.parameters if selected(col))
     off = have(offset) ? offset : 0
@@ -383,6 +413,7 @@ macro val(ex)
     return esc(:(Symbol(string("val", $ex))))
 end
 
+# generate the entire streaming loop, according to any QueryColumns passed by the user
 function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, offset)
     streamfrom_inner_loop = codeblock()
     streamto_inner_loop = codeblock()
@@ -588,7 +619,7 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
                 vals = @static if isdefined(Core, :NamedTuple)
                         :(vals = NamedTuple{$names, $types}(($(inds...),)))
                     else
-                        exprs = [:($nm::$typ) for (nm, typ) in zip(names, types)]
+                        exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
                         nt = NamedTuples.make_tuple(exprs)
                         :(vals = $nt($(inds...)))
                     end
@@ -609,7 +640,7 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
         vals = @static if isdefined(Core, :NamedTuple)
                 :(vals = NamedTuple{$names, $types}(($(inds...),)))
             else
-                exprs = [:($nm::$typ) for (nm, typ) in zip(names, types)]
+                exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
                 nt = NamedTuples.make_tuple(exprs)
                 :(vals = $nt($(inds...)))
             end
@@ -695,8 +726,8 @@ end
         end
         return sink
     end
-    @show columns
-    println(r)
+    # @show columns
+    # println(r)
     return r
 end
 
