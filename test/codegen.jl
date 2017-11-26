@@ -63,20 +63,20 @@ end
 Base.start(ri::RowIterator) = 1
 @generated function Base.next(ri::RowIterator{names, T}, row::Int) where {names, T}
     S = Tuple{map(eltype, T.parameters)...}
-    r = :(convert($S, tuple($((:($(Symbol("v$i")) = getfield(ri.nt, $i)[row]; $(Symbol("v$i")) isa Null ? null : $(Symbol("v$i"))) for i = 1:nfields(T))...))))
+    r = :(convert($S, tuple($((:($(Symbol("v$i")) = getfield(ri.nt, $i)[row]; $(Symbol("v$i")) isa Missing ? missing : $(Symbol("v$i"))) for i = 1:nfields(T))...))))
     return r
 end
 Base.done(ri::RowIterator, i::Int) = i > length(getfield(ri.nt, 1))
 @generated function Base.next(ri::RowIterator{names,T}, row::Int) where {names, T}
     NT = NamedTuple{names}
     S = Tuple{map(eltype, T.parameters)...}
-    r = :(Base.namedtuple($NT, convert($S, tuple($((:($(Symbol("v$i")) = getfield(ri.nt, $i)[row]; $(Symbol("v$i")) isa Null ? null : $(Symbol("v$i"))) for i = 1:nfields(T))...)))...))
+    r = :(Base.namedtuple($NT, convert($S, tuple($((:($(Symbol("v$i")) = getfield(ri.nt, $i)[row]; $(Symbol("v$i")) isa Missing ? missing : $(Symbol("v$i"))) for i = 1:nfields(T))...)))...))
     return r
 end
 
 @generated function Base.next(ri::RowIterator{names,T,S}, i::Int)::S where {names, T, S}
     # NT = NamedTuple{names}
-    args = Expr[:(v = getfield(nt, $i)[row]; ifelse(v isa Null, null, v)) for i = 1:nfields(T)]
+    args = Expr[:(v = getfield(nt, $i)[row]; ifelse(v isa Missing, missing, v)) for i = 1:nfields(T)]
     return :((args...))
     # R = NamedTuple{names, Tuple{map(eltype, T.parameters)...}}
     # return :(convert($R, Base.namedtuple($NT, $(args...))))
