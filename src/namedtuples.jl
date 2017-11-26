@@ -1,5 +1,8 @@
 if !isdefined(Core, :NamedTuple)
     using NamedTuples
+    function Base.get(f::Function, nt::NamedTuple, k)
+        return haskey(nt, k) ? nt[k] : f()
+    end
 end
 
 # Source/Sink with NamedTuple, both row and column oriented
@@ -13,6 +16,7 @@ end
 Data.streamtype(::Type{Array}, ::Type{Data.Field}) = true
 @inline Data.streamfrom(source::RowTable, ::Type{Data.Field}, ::Type{T}, row, col) where {T} = source[row][col]
 Data.streamtypes(::Type{Array}) = [Data.Row]
+Data.accesspattern(::RowTable) = Data.RandomAccess()
 
 @inline Data.streamto!(sink::RowTable, ::Type{Data.Row}, val, row, col) =
     row > length(sink) ? push!(sink, val) : setindex!(sink, val, row)
@@ -66,10 +70,11 @@ end
 # We support both kinds of streaming
 Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Column}) = true
 Data.streamtype(::Type{<:NamedTuple}, ::Type{Data.Field}) = true
+Data.accesspattern(::Table) = Data.RandomAccess()
 
 # Data.streamfrom is pretty simple, just return the cell or column
-@inline Data.streamfrom(source::Table, ::Type{Data.Column}, ::Type{T}, row, col) where {T} = source[col]
-@inline Data.streamfrom(source::Table, ::Type{Data.Field}, ::Type{T}, row, col) where {T} = source[col][row]
+@inline Data.streamfrom(source::Table, ::Type{Data.Column}, T, row::Integer, col::Integer) = source[col]
+@inline Data.streamfrom(source::Table, ::Type{Data.Field}, T, row::Integer, col::Integer) = source[col][row]
 
 # NamedTuple Data.Sink implementation
 # we support both kinds of streaming to our type
@@ -82,7 +87,8 @@ allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
 # allocate(::Type{T}, rows, ref) where {T <: Union{CategoricalValue, Missing}} =
 #     CategoricalArray{CategoricalArrays.unwrap_catvalue_type(T)}(rows)
 # special case for WeakRefStrings
-allocate(::Type{T}, rows, ref) where {T <: Union{WeakRefString,Missing}} = WeakRefStringArray(ref, T, rows)
+allocate(::Type{WeakRefString{T}}, rows, ref) where {T} = WeakRefStringArray(ref, WeakRefString{T}, rows)
+allocate(::Type{Union{WeakRefString{T}, Missing}}, rows, ref) where {T} = WeakRefStringArray(ref, Union{WeakRefString{T}, Missing}, rows)
 
 # NamedTuple doesn't allow duplicate names, so make sure there are no duplicates in our column names
 function makeunique(names::Vector{String})
@@ -91,7 +97,7 @@ function makeunique(names::Vector{String})
     for (i, x) in enumerate(nms)
         x in seen ? setindex!(nms, Symbol("$(x)_$i"), i) : push!(seen, x)
     end
-    return (nms...)
+    return (nms...,)
 end
 
 function Array(sch::Data.Schema{R}, ::Type{Data.Row}, append::Bool=false, args...) where {R}
@@ -110,6 +116,7 @@ function Array(sch::Data.Schema{R}, ::Type{Data.Row}, append::Bool=false, args..
     else
         rows = ifelse(!R, 0, sch.rows)
         names = makeunique(Data.header(sch))
+        # @show rows, names, types
         sink = @static if isdefined(Core, :NamedTuple)
                 Vector{NamedTuple{names, Tuple{types...}}}(rows)
             else

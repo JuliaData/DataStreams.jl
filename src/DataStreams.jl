@@ -7,6 +7,10 @@ module Data
 
 using Missings, WeakRefStrings
 
+if !isdefined(Base, :AbstractRange)
+    const AbstractRange = Range
+end
+
 # Data.Schema
 """
 A `Data.Schema` describes a tabular dataset, i.e. a set of named, typed columns with records as rows
@@ -80,8 +84,8 @@ end
 
 function transform(sch::Data.Schema{R, T}, transforms::Dict{Int, <:Function}, weakref) where {R, T}
     types = Data.types(sch)
-    transforms2 = ((get(transforms, x, identity) for x = 1:length(types))...)
-    newtypes = ((Core.Inference.return_type(transforms2[x], (types[x],)) for x = 1:length(types))...)
+    transforms2 = ((get(transforms, x, identity) for x = 1:length(types))...,)
+    newtypes = ((Core.Inference.return_type(transforms2[x], (types[x],)) for x = 1:length(types))...,)
     if !weakref
         newtypes = map(x->x >: Missing ? ifelse(Missings.T(x) <: WeakRefString, Union{String, Missing}, x) : ifelse(x <: WeakRefString, String, x), newtypes)
     end
@@ -188,6 +192,7 @@ where `row` indicates the # of rows that have already been streamed from the sou
 """
 function streamfrom end
 Data.streamfrom(source, ::Type{Data.Column}, T, row, col) = Data.streamfrom(source, Data.Column, T, col)
+Data.streamfrom(source, ::Type{Data.Column}, T, r::AbstractRange, col) = Data.streamfrom(source, Data.Column, T, first(r), col)[r]
 
 # Generic fallbacks
 Data.streamtype(source, ::Type{Data.Row}) = Data.streamtype(source, Data.Field)
@@ -198,7 +203,7 @@ struct RandomAccess end
 struct Sequential end
 
 """
-`Data.accesspatern(source) => Data.RandomAccess | Data.Sequential`
+`Data.accesspattern(source) => Data.RandomAccess | Data.Sequential`
 
 returns the data access pattern for a Data.Source.
 
@@ -426,6 +431,30 @@ In addition, any `Data.Source` can be iterated via the `Data.rows(source)` funct
 """
 function stream! end
 
+# skipfield! and skiprow! only apply to Data.Field/Data.Row streaming
+skipfield!(source, S, T, row, col) = Data.accesspattern(source) == Data.RandomAccess() ? nothing : Data.streamfrom(source, S, T, row, col)
+function skiprow!(source, S, row, col)
+    Data.accesspattern(source) == Data.RandomAccess() && return
+    sch = Data.schema(source)
+    cols = size(sch, 2)
+    types = Data.types(sch)
+    for i = col:cols
+        Data.streamfrom(source, S, types[i], row, i)
+    end
+    return
+end
+function skiprows!(source, S, from, to)
+    Data.accesspattern(source) == Data.RandomAccess() && return
+    sch = Data.schema(source)
+    cols = size(sch, 2)
+    types = Data.types(sch)
+    for row = from:to
+        for col = 1:cols
+            Data.streamfrom(source, S, types[col], row, col)
+        end
+    end
+end
+
 datatype(T) = eval(Base.datatype_module(Base.unwrap_unionall(T)), Base.datatype_name(T))
 
 # generic public definitions
@@ -601,6 +630,7 @@ end
 end
 
 include("namedtuples.jl")
+include("query.jl")
 
 end # module Data
 

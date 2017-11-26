@@ -2,6 +2,8 @@ using Base.Test, DataStreams, Missings
 
 @static if !isdefined(Core, :NamedTuple)
     using NamedTuples
+else
+    using Dates
 end
 
 import Base: ==
@@ -31,8 +33,8 @@ rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
 hired = (Union{Date, Missing})[Date("2011-07-07"), Date("2016-02-19"), missing, Date("2002-01-05"), Date("2008-05-15")],
 fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
 )
-J = NamedTuple{(:_0, (Symbol("_$i") for i = 1:501)...)}((["0"], ([i] for i =1:501)...))
-K = NamedTuple{((Symbol("_$i") for i = 1:501)...)}((([i] for i = 1:501)...))
+J = NamedTuple{(:_0, (Symbol("_$i") for i = 1:501)...,)}((["0"], ([i] for i =1:501)...,))
+K = NamedTuple{((Symbol("_$i") for i = 1:501)...,)}((([i] for i = 1:501)...,))
 
 nms(::NamedTuple{names}) where {names} = names
 
@@ -213,7 +215,7 @@ Data.stream!(source, sink; append=true);
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (2, 502)
 @test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
 @test sink.nt._0 == ["0", "0"]
 @test sink.nt._1 == [1, 1]
 
@@ -225,7 +227,7 @@ Data.stream!(source, sink)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (1, 502)
 @test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
 @test sink.nt._0 == ["0"]
 @test sink.nt._1 == [1]
 
@@ -238,7 +240,7 @@ Data.stream!(source, Sink, sink.nt; transforms=transforms)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (1, 502)
 @test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
 @test sink.nt._0 == ["0"]
 @test sink.nt._1 == [2]
 
@@ -251,7 +253,7 @@ Data.stream!(source, Sink, sink.nt; transforms=transforms)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (1, 501)
 @test DataStreams.Data.header(sch) == collect("_$i" for i = 1:501)
-@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...)
+@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...,)
 @test sink.nt._1 == [1]
 @test sink.nt._2 == [3]
 
@@ -263,7 +265,7 @@ sink = Data.stream!(source, NamedTuple)
 sch = DataStreams.Data.schema(sink)
 @test size(sch) == (1, 502)
 @test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
 @test sink._0 == ["0"]
 @test sink._1 == [1]
 
@@ -278,7 +280,7 @@ Data.stream!(source, sink; transforms=transforms)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (1, 501)
 @test DataStreams.Data.header(sch) == collect("_$i" for i = 1:501)
-@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...)
+@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...,)
 @test sink.nt._1 == [1]
 @test sink.nt._2 == [3]
 
@@ -290,7 +292,7 @@ Data.stream!(source, Sink, sink.nt; append=true)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (2, 501)
 @test DataStreams.Data.header(sch) == collect("_$i" for i = 1:501)
-@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...)
+@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...,)
 @test sink.nt._1 == [1, 1]
 @test sink.nt._2 == [2, 2]
 
@@ -326,7 +328,7 @@ Data.stream!(source, Sink, sink.nt; transforms=transforms)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (1, 502)
 @test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
 @test sink.nt._0 == ["0"]
 @test sink.nt._1 == [2]
 
@@ -374,5 +376,7 @@ for (i, row) in enumerate(rows)
 end
 
 end
+
+include("query.jl")
 
 end # @testset "DataStreams"
