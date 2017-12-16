@@ -118,6 +118,13 @@ for sink in (Data.Table, Data.RowTable)
     @test Data.header(sch) == ["a", "c"]
     @test size(sch) == (3, 2)
 
+    # select a, sum(c - d) group by a
+    res = Data.query(df, [@NT(col=1, group=true), @NT(name=:c, compute=(x,y)->x - y, computeargs=(3,4), aggregate=sum)], sink)
+    sch = Data.schema(res)
+    @test Data.types(sch) == (Int, Float64)
+    @test Data.header(sch) == ["a", "c"]
+    @test size(sch) == (3, 2)
+
     # select a group by a
     res = Data.query(df, [@NT(col=1, group=true)], sink)
     sch = Data.schema(res)

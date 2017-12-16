@@ -15,16 +15,8 @@
 #     push!(typs, T=>len)
 #     return typs
 # end
-
-@generated function tuplesubset(tup, inds)
-    # if @generated
-        N = length(inds.parameters)
-        args = Any[:(tup[inds[$i]]) for i = 1:N]
-        return Expr(:new, :(NTuple{$N, DataType}), args...)
-    # else
-    #     Tuple(tup[inds[i]] for i in inds)
-    # end
-end
+tuplesubset(tup, ::Tuple{}) = ()
+tuplesubset(tup, inds) = (tup[inds[1]], tuplesubset(tup, Base.tail(inds))...)
 
 import Base.|
 |(::Type{A}, ::Type{B}) where {A, B} = Union{A, B}
@@ -96,7 +88,7 @@ end
             n = 1
             for i = 2:len
                 key2 = aos[i]
-                if key == key2
+                if isequal(key, key2)
                     continue
                 else
                     entry = get!(aggregates, key, tuple($(default...)))
@@ -252,6 +244,9 @@ function QueryColumn(sourceindex, types=(), header=[];
         compute = have(compute) ? compute : computeaggregate
         T = Core.Inference.return_type(compute, have(compute) ? tuplesubset(types, args) : Tuple(Vector{T} for T in tuplesubset(types, args)))
         name = name == Symbol("") ? Symbol("Column$sinkindex") : Symbol(name)
+    elseif have(aggregate)
+        T = Any
+        name = name == Symbol("") && length(header) >= sourceindex ? Symbol(header[sourceindex]) : Symbol(name)
     else
         T = (T == Any && length(types) >= sourceindex) ? types[sourceindex] : T
         name = name == Symbol("") && length(header) >= sourceindex ? Symbol(header[sourceindex]) : Symbol(name)
@@ -327,14 +322,19 @@ function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
             foreach(i->push!(aggcompute_extras, i), args(columns[end]))
         end
     end
-    append!(columns, QueryColumn(x, types, header; hide=true, sinkindex=outlen+i) for (i, x) in enumerate(Base.sort(collect(extras))))
-    columns = Tuple(columns)
-    
     querycode = UNUSED
     for col in columns
-        c = code(typeof(col))
-        querycode |= c
+        querycode |= code(typeof(col))
     end
+    if grouped(querycode)
+        for col in columns
+            c = code(typeof(col))
+            (grouped(c) || have(col.aggregate)) || throw(ArgumentError("in query with grouped columns, each column must be grouped or aggregated: " * string(col)))
+        end
+    end
+    append!(columns, QueryColumn(x, types, header; hide=true, sinkindex=outlen+i) for (i, x) in enumerate(Base.sort(collect(extras))))
+    columns = Tuple(columns)
+
     return Query{querycode, S, typeof(columns), Tuple(aggcompute_extras), limit, offset}(source, columns)
 end
 
@@ -745,4 +745,3 @@ end
 #TODO: spread, gather, sample, analytic functions
     # gather: (name=:gathered, gather=true, args=(1,2,3))
     # spread: (spread=1, value=2)
-#TODO: hook up frontend!
