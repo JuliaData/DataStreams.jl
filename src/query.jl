@@ -329,7 +329,8 @@ function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
     if grouped(querycode)
         for col in columns
             c = code(typeof(col))
-            (grouped(c) || have(col.aggregate)) || throw(ArgumentError("in query with grouped columns, each column must be grouped or aggregated: " * string(col)))
+            (grouped(c) || have(col.aggregate) || aggcomputed(c) || scalarfiltered(c)) ||
+                throw(ArgumentError("in query with grouped columns, each column must be grouped or aggregated: " * string(col)))
         end
     end
     append!(columns, QueryColumn(x, types, header; hide=true, sinkindex=outlen+i) for (i, x) in enumerate(Base.sort(collect(extras))))
