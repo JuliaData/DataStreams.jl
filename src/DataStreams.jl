@@ -10,6 +10,12 @@ using Missings, WeakRefStrings
 if !isdefined(Base, :AbstractRange)
     const AbstractRange = Range
 end
+macro uninit(expr)
+    if !isdefined(Base, :uninitialized)
+        splice!(expr.args, 2)
+    end
+    return esc(expr)
+end
 
 # Data.Schema
 """

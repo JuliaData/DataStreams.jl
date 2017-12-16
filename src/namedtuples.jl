@@ -83,7 +83,7 @@ Data.streamtypes(::Type{<:NamedTuple}) = [Data.Column, Data.Field]
 Data.weakrefstrings(::Type{<:NamedTuple}) = true
 
 # convenience methods for "allocating" a single column for streaming
-allocate(::Type{T}, rows, ref) where {T} = Vector{T}(rows)
+allocate(::Type{T}, rows, ref) where {T} = @uninit Vector{T}(uninitialized, rows)
 # allocate(::Type{T}, rows, ref) where {T <: Union{CategoricalValue, Missing}} =
 #     CategoricalArray{CategoricalArrays.unwrap_catvalue_type(T)}(rows)
 # special case for WeakRefStrings
@@ -118,10 +118,10 @@ function Array(sch::Data.Schema{R}, ::Type{Data.Row}, append::Bool=false, args..
         names = makeunique(Data.header(sch))
         # @show rows, names, types
         sink = @static if isdefined(Core, :NamedTuple)
-                Vector{NamedTuple{names, Tuple{types...}}}(rows)
+                @uninit Vector{NamedTuple{names, Tuple{types...}}}(uninitialized, rows)
             else
                 exprs = [:($nm::$typ) for (nm, typ) in zip(names, types)]
-                Vector{eval(NamedTuples.make_tuple(exprs))}(rows)
+                @uninit Vector{eval(NamedTuples.make_tuple(exprs))}(uninitialized, rows)
             end
         sch.rows = rows
     end
