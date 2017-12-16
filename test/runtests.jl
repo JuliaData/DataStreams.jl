@@ -1,4 +1,10 @@
-using Base.Test, DataStreams, Missings
+using DataStreams, Missings
+
+@static if VERSION < v"0.7.0-DEV.2005"
+    using Base.Test
+else
+    using Test
+end
 
 @static if !isdefined(Core, :NamedTuple)
     using NamedTuples
@@ -154,7 +160,7 @@ f1 = Float64
 f2 = x->parse(Int, x)
 sch2, trans = DataStreams.Data.transform(sch, Dict{String, Base.Callable}("col1"=>f1, "col3"=>f2), true)
 @test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Float64, Float64, Int)
+@test DataStreams.Data.types(sch2) == (Float64, Float64, Union{Void, Int})
 @test trans == (f1, identity, f2)
 
 sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], missing)

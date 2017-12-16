@@ -1,4 +1,9 @@
-using DataStreams, Base.Test
+using DataStreams
+@static if VERSION < v"0.7.0-DEV.2005"
+    using Base.Test
+else
+    using Test
+end
 @static if isdefined(Core, :NamedTuple)
 macro NT(args...)
     return esc(:(($(args...),)))
