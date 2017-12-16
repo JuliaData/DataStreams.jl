@@ -82,7 +82,7 @@ function Base.show(io::IO, schema::Schema)
     end
 end
 
-function transform(sch::Data.Schema{R, T}, transforms::Dict{Int, <:Function}, weakref) where {R, T}
+function transform(sch::Data.Schema{R, T}, transforms::Dict{Int, <:Base.Callable}, weakref) where {R, T}
     types = Data.types(sch)
     transforms2 = ((get(transforms, x, identity) for x = 1:length(types))...,)
     newtypes = ((Core.Inference.return_type(transforms2[x], (types[x],)) for x = 1:length(types))...,)
@@ -91,7 +91,7 @@ function transform(sch::Data.Schema{R, T}, transforms::Dict{Int, <:Function}, we
     end
     return Schema(newtypes, Data.header(sch), size(sch, 1), sch.metadata), transforms2
 end
-transform(sch::Data.Schema, transforms::Dict{String, <:Function}, s) = transform(sch, Dict{Int, Function}(sch[x]=>f for (x, f) in transforms), s)
+transform(sch::Data.Schema, transforms::Dict{String, <:Base.Callable}, s) = transform(sch, Dict{Int, Base.Callable}(sch[x]=>f for (x, f) in transforms), s)
 
 # Data.StreamTypes
 abstract type StreamType end
@@ -568,7 +568,7 @@ function inner_loop(::Type{Val{N}}, ::Type{S}, ::Type{Val{homogeneous}}, ::Type{
     return loop
 end
 
-@inline function streamto!(sink, ::Type{S}, source, ::Type{T}, row, sinkrowoffset, col::Int, f::Function, knownrows) where {S, T}
+@inline function streamto!(sink, ::Type{S}, source, ::Type{T}, row, sinkrowoffset, col::Int, f::Base.Callable, knownrows) where {S, T}
     val = Data.streamfrom(source, S, T, row, col)
     if val isa Missing
         Data.streamto!(sink, S, f(val), sinkrowoffset + row, col, knownrows)
