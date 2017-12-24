@@ -97,7 +97,8 @@ function transform(sch::Data.Schema{R, T}, transforms::Dict{Int, <:Base.Callable
     end
     return Schema(newtypes, Data.header(sch), size(sch, 1), sch.metadata), transforms2
 end
-transform(sch::Data.Schema, transforms::Dict{String, <:Base.Callable}, s) = transform(sch, Dict{Int, Base.Callable}(sch[x]=>f for (x, f) in transforms), s)
+transform(sch::Data.Schema, transforms::Dict{String, F}, s) where {F<:Base.Callable} =
+    transform(sch, Dict{Int, F}(sch[x]=>f for (x, f) in transforms), s)
 
 # Data.StreamTypes
 abstract type StreamType end
