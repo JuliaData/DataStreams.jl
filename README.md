@@ -30,7 +30,14 @@ The package is tested against Julia `0.6` and *current* `0.7`/`1.0` on Linux, OS
 Contributions are very welcome, as are feature requests and suggestions. Please open an
 [issue][issues-url] if you encounter any problems or would just like to ask a question.
 
+## List of Known Implementations
 
+* [DataFrames.jl](https://github.com/JuliaData/DataFrames.jl)
+* [CSV.jl](https://github.com/JuliaData/CSV.jl)
+* [Feather.jl](https://github.com/JuliaData/Feather.jl)
+* [SQLite.jl](https://github.com/JuliaDatabases/SQLite.jl)
+* [ODBC.jl](https://github.com/JuliaDatabases/ODBC.jl)
+* [MySQL.jl](https://github.com/JuliaDatabases/MySQL.jl)
 
 [docs-latest-img]: https://img.shields.io/badge/docs-latest-blue.svg
 [docs-latest-url]: https://JuliaData.github.io/DataStreams.jl/latest
