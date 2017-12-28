@@ -23,6 +23,17 @@ for sink in (Data.Table, Data.RowTable)
     @test cell(res, 4, 1) == 1
     @test cell(res, 4, 4) == 0
 
+    # select *
+    res = Data.query(df)
+    sch = Data.schema(res)
+    @test Data.types(sch) == (Int, String, Float64, Int)
+    @test Data.header(sch) == ["a", "b", "c", "d"]
+    @test size(sch) == (4, 4)
+    @test cell(res, 1, 1) == 1
+    @test cell(res, 1, 4) == 0
+    @test cell(res, 4, 1) == 1
+    @test cell(res, 4, 4) == 0
+
     # select * offset 1
     res = Data.query(df, [@NT(col=1,), @NT(col=2,), @NT(col=3,), @NT(col=4,)], sink, offset=1)
     sch = Data.schema(res)

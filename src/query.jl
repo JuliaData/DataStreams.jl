@@ -291,6 +291,7 @@ function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
     aggcompute_extras = Set()
     si = 0
     outcol = 1
+    isempty(actions) && (actions = [@NT(col=i,) for i = 1:len])
     for x in actions
         # if not provided, set sort index order according to order columns are given
         sortindex = get(x, :sortindex) do
@@ -363,7 +364,7 @@ Query a valid DataStreams `Data.Source` according to query `actions` and stream 
   * `group::Bool`: whether this column should be grouped, causing other columns to be aggregated
   * `aggregate::Function`: a function to reduce a columns values based on grouping keys, should be of the form `f(A::AbstractArray) => scalar`
 """
-function query(source, actions, sink=Table, args...; append::Bool=false, limit::(Integer|Void)=nothing, offset::(Integer|Void)=nothing)
+function query(source, actions=[], sink=Table, args...; append::Bool=false, limit::(Integer|Nothing)=nothing, offset::(Integer|Nothing)=nothing)
     q = Query(source, actions, limit, offset)
     sink = Data.stream!(q, sink, args...; append=append)
     return Data.close!(sink)
