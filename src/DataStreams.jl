@@ -465,58 +465,58 @@ datatype(T) = eval(Base.datatype_module(Base.unwrap_unionall(T)), Base.datatype_
 # generic public definitions
 const TRUE = x->true
 # the 2 methods below are safe and expected to be called from higher-level package convenience functions (e.g. CSV.read)
-function Data.stream!(source::So, ::Type{Si}, args...;
-                        append::Bool=false,
-                        transforms::Dict=Dict{Int, Function}(),
-                        filter::Function=TRUE,
-                        columns::Vector=[],
-                        kwargs...) where {So, Si}
-    S = datatype(Si)
-    sinkstreamtypes = Data.streamtypes(S)
-    for sinkstreamtype in sinkstreamtypes
-        if Data.streamtype(datatype(So), sinkstreamtype)
-            source_schema = Data.schema(source)
-            wk = weakrefstrings(S)
-            sink_schema, transforms2 = Data.transform(source_schema, transforms, wk)
-            if wk
-                sink = S(sink_schema, sinkstreamtype, append, args...; reference=Data.reference(source), kwargs...)
-            else
-                sink = S(sink_schema, sinkstreamtype, append, args...; kwargs...)
-            end
-            sourcerows = size(source_schema, 1)
-            sinkrows = size(sink_schema, 1)
-            sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
-            return Data.stream!(source, sinkstreamtype, sink, source_schema, sinkrowoffset, transforms2, filter, columns, Ref{Tuple(map(Symbol, Data.header(source_schema)))})
-        end
-    end
-    throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
-end
+# function Data.stream!(source::So, ::Type{Si}, args...;
+#                         append::Bool=false,
+#                         transforms::Dict=Dict{Int, Function}(),
+#                         filter::Function=TRUE,
+#                         columns::Vector=[],
+#                         kwargs...) where {So, Si}
+#     S = datatype(Si)
+#     sinkstreamtypes = Data.streamtypes(S)
+#     for sinkstreamtype in sinkstreamtypes
+#         if Data.streamtype(datatype(So), sinkstreamtype)
+#             source_schema = Data.schema(source)
+#             wk = weakrefstrings(S)
+#             sink_schema, transforms2 = Data.transform(source_schema, transforms, wk)
+#             if wk
+#                 sink = S(sink_schema, sinkstreamtype, append, args...; reference=Data.reference(source), kwargs...)
+#             else
+#                 sink = S(sink_schema, sinkstreamtype, append, args...; kwargs...)
+#             end
+#             sourcerows = size(source_schema, 1)
+#             sinkrows = size(sink_schema, 1)
+#             sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
+#             return Data.stream!(source, sinkstreamtype, sink, source_schema, sinkrowoffset, transforms2, filter, columns, Ref{Tuple(map(Symbol, Data.header(source_schema)))})
+#         end
+#     end
+#     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
+# end
 
-function Data.stream!(source::So, sink::Si;
-                        append::Bool=false,
-                        transforms::Dict=Dict{Int, Function}(),
-                        filter::Function=TRUE,
-                        columns::Vector=[]) where {So, Si}
-    S = datatype(Si)
-    sinkstreamtypes = Data.streamtypes(S)
-    for sinkstreamtype in sinkstreamtypes
-        if Data.streamtype(datatype(So), sinkstreamtype)
-            source_schema = Data.schema(source)
-            wk = weakrefstrings(S)
-            sink_schema, transforms2 = transform(source_schema, transforms, wk)
-            if wk
-                sink = S(sink, sink_schema, sinkstreamtype, append; reference=Data.reference(source))
-            else
-                sink = S(sink, sink_schema, sinkstreamtype, append)
-            end
-            sourcerows = size(source_schema, 1)
-            sinkrows = size(sink_schema, 1)
-            sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
-            return Data.stream!(source, sinkstreamtype, sink, source_schema, sinkrowoffset, transforms2, filter, columns, Ref{Tuple(map(Symbol, Data.header(source_schema)))})
-        end
-    end
-    throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
-end
+# function Data.stream!(source::So, sink::Si;
+#                         append::Bool=false,
+#                         transforms::Dict=Dict{Int, Function}(),
+#                         filter::Function=TRUE,
+#                         columns::Vector=[]) where {So, Si}
+#     S = datatype(Si)
+#     sinkstreamtypes = Data.streamtypes(S)
+#     for sinkstreamtype in sinkstreamtypes
+#         if Data.streamtype(datatype(So), sinkstreamtype)
+#             source_schema = Data.schema(source)
+#             wk = weakrefstrings(S)
+#             sink_schema, transforms2 = transform(source_schema, transforms, wk)
+#             if wk
+#                 sink = S(sink, sink_schema, sinkstreamtype, append; reference=Data.reference(source))
+#             else
+#                 sink = S(sink, sink_schema, sinkstreamtype, append)
+#             end
+#             sourcerows = size(source_schema, 1)
+#             sinkrows = size(sink_schema, 1)
+#             sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
+#             return Data.stream!(source, sinkstreamtype, sink, source_schema, sinkrowoffset, transforms2, filter, columns, Ref{Tuple(map(Symbol, Data.header(source_schema)))})
+#         end
+#     end
+#     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
+# end
 
 function inner_loop(::Type{Val{N}}, ::Type{S}, ::Type{Val{homogeneous}}, ::Type{T}, knownrows::Type{Val{R}}, names, sourcetypes) where {N, S <: StreamType, homogeneous, T, R}
     if S == Data.Row

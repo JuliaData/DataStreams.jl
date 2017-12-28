@@ -31,7 +31,7 @@ const SCALARCOMPUTED = 0x08
 const AGGCOMPUTED    = 0x10
 const SORTED         = 0x20
 const GROUPED        = 0x40
-const AAA = 0x80
+const AAA = 0x80 # unused
 
 unused(code::QueryCodeType) = code === UNUSED
 
@@ -111,9 +111,9 @@ end
 mutable struct Node{T}
     inds::Vector{Int}
     value::T
-    left::Union{Node{T}, Void}
-    right::Union{Node{T}, Void}
-    node::Union{Node, Void}
+    left::Union{Node{T}, Nothing}
+    right::Union{Node{T}, Nothing}
+    node::Union{Node, Nothing}
 end
 Node(rowind, ::Tuple{}) = nothing
 Node(rowind, t::Tuple) = Node([rowind], t[1], nothing, nothing, Node(rowind, Base.tail(t)))
@@ -193,27 +193,27 @@ Options include:
   * `aggregate::Function`: a function to reduce a columns values based on grouping keys, should be of the form `f(A::AbstractArray) => scalar`
 """
 struct QueryColumn{code, T, sourceindex, sinkindex, name, sort, args}
-    filter::(Function|Void)
-    having::(Function|Void)
-    compute::(Function|Void)
-    aggregate::(Function|Void)
+    filter::(Function|Nothing)
+    having::(Function|Nothing)
+    compute::(Function|Nothing)
+    aggregate::(Function|Nothing)
 end
 
 function QueryColumn(sourceindex, types=(), header=[];
                 name=Symbol(""),
                 T::Type=Any,
-                sinkindex::(Integer|Void)=sourceindex,
+                sinkindex::(Integer|Nothing)=sourceindex,
                 hide::Bool=false,
-                filter::(Function|Void)=nothing,
-                having::(Function|Void)=nothing,
-                compute::(Function|Void)=nothing,
-                computeaggregate::(Function|Void)=nothing,
+                filter::(Function|Nothing)=nothing,
+                having::(Function|Nothing)=nothing,
+                compute::(Function|Nothing)=nothing,
+                computeaggregate::(Function|Nothing)=nothing,
                 computeargs=nothing,
                 sort::Bool=false,
-                sortindex::(Integer|Void)=nothing,
+                sortindex::(Integer|Nothing)=nothing,
                 sortasc::Bool=true,
                 group::Bool=false,
-                aggregate::(Function|Void)=nothing,
+                aggregate::(Function|Nothing)=nothing,
                 kwargs...)
     # validate
     have(compute) && have(computeaggregate) && throw(ArgumentError("column can't be computed as scalar & aggregate"))
@@ -383,25 +383,6 @@ function schema(q::Query{code, S, columns, e, limit, offset}, wk=true) where {co
     rows = (scalarfiltered(code) | grouped(code)) ? missing : rows
     return Schema(types, header, rows)
 end
-
-# function subset(T, I, i)
-#     if Base.tuple_type_head(I) == i
-#         head = Base.tuple_type_head(T)
-#         tail = Base.tuple_type_tail(I)
-#         return tail == Tuple{} ? Tuple{head} : Base.tuple_type_cons(head, subset(Base.tuple_type_tail(T), tail, i + 1))
-#     else
-#         return subset(T, I, i + 1)
-#     end
-# end
-
-# function tupletypesubset(::Type{T}, ::Type{I}) where {T, I}
-#     if @generated
-#         TT = subset(T, I, 1)
-#         return :($TT)
-#     else
-#         Tuple{(T.parameters[i] for i in I.parameters)...}
-#     end
-# end
 
 codeblock() = Expr(:block)
 macro vals(ex)
@@ -691,6 +672,54 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
     end
 end
 
+gettransforms(sch, d::Dict{Int, <:Base.Callable}) = d
+gettransforms(sch, d::Dict{String, F}) where {F <: Base.Callable} = Dict{Int, F}(sch[x]=>f for (x, f) in d)
+
+function Data.stream!(source::So, ::Type{Si}, args...;
+                        append::Bool=false,
+                        transforms::Dict=Dict{Int, Function}(),
+                        filter::Function=TRUE,
+                        columns::Vector=[],
+                        actions=[], limit=nothing, offset=nothing,
+                        kwargs...) where {So, Si}
+    if isempty(transforms)
+        acts = actions
+    elseif isempty(actions)
+        # exclude transform columns, add scalarcomputed transform column w/ same name
+        sch = Data.schema(source)
+        trns = gettransforms(sch, transforms)
+        acts = NamedTuple[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
+        names = Data.header(sch)
+        append!(acts, [@NT(name=names[col], compute=f, computeargs=(col,)) for (col, f) in trns])
+    else
+        throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
+    end
+    q = Query(source, acts, limit, offset)
+    return Data.stream!(q, Si, args...; append=append, kwargs...)
+end
+
+function Data.stream!(source::So, sink::Si;
+                        append::Bool=false,
+                        transforms::Dict=Dict{Int, Function}(),
+                        filter::Function=TRUE,
+                        actions=[], limit=nothing, offset=nothing,
+                        columns::Vector=[]) where {So, Si}
+    if isempty(transforms)
+        acts = actions
+    elseif isempty(actions)
+        # exclude transform columns, add scalarcomputed transform column w/ same name
+        sch = Data.schema(source)
+        trns = gettransforms(sch, transforms)
+        acts = NamedTuple[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
+        names = Data.header(sch)
+        append!(acts, [@NT(name=names[col], compute=f, computeargs=(col,)) for (col, f) in trns])
+    else
+        throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
+    end
+    q = Query(source, acts, limit, offset)
+    return Data.stream!(q, sink; append=append)
+end
+
 function Data.stream!(q::Query{code, So}, ::Type{Si}, args...; append::Bool=false, kwargs...) where {code, So, Si}
     S = datatype(Si)
     sinkstreamtypes = Data.streamtypes(S)
@@ -713,8 +742,30 @@ function Data.stream!(q::Query{code, So}, ::Type{Si}, args...; append::Bool=fals
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
 end
 
+function Data.stream!(q::Query{code, So}, sink::Si; append::Bool=false) where {code, So, Si}
+    S = datatype(Si)
+    sinkstreamtypes = Data.streamtypes(S)
+    for sinkstreamtype in sinkstreamtypes
+        if Data.streamtype(datatype(So), sinkstreamtype)
+            wk = weakrefstrings(S)
+            sourceschema = Data.schema(q.source)
+            sinkschema = Data.schema(q, wk)
+            if wk
+                sink = S(sink, sinkschema, sinkstreamtype, append; reference=Data.reference(q))
+            else
+                sink = S(sink, sinkschema, sinkstreamtype, append)
+            end
+            sourcerows = size(sourceschema, 1)
+            sinkrows = size(sinkschema, 1)
+            sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
+            return Data.stream!(q, sinkstreamtype, sink, sourceschema, sinkrowoffset)
+        end
+    end
+    throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
+end
+
 @generated function Data.stream!(q::Query{code, So, columns, extras, limit, offset}, ::Type{S}, sink,
-                        source_schema::Data.Schema{R, T1}, sinkrowoffset) where {S <: Data.StreamType, R, T1, code, So, columns, extras, limit, offset}
+                        sourceschema::Data.Schema{R, T1}, sinkrowoffset) where {S <: Data.StreamType, R, T1, code, So, columns, extras, limit, offset}
     types = T1.parameters
     sourcetypes = Tuple(types)
     # runlen = rle(sourcetypes)
@@ -724,7 +775,7 @@ end
     knownrows = R && !scalarfiltered(code) && !grouped(code)
     RR = R ? Int : Missing
     r = quote
-        rows, cols = size(source_schema)::Tuple{$RR, Int}
+        rows, cols = size(sourceschema)::Tuple{$RR, Int}
         Data.isdone(q.source, 1, 1, rows, cols) && return sink
         source = q.source
         sourcetypes = $sourcetypes
