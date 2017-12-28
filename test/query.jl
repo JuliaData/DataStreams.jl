@@ -4,13 +4,6 @@ using DataStreams
 else
     using Test
 end
-@static if isdefined(Core, :NamedTuple)
-macro NT(args...)
-    return esc(:(($(args...),)))
-end
-else
-using NamedTuples
-end
 
 df = @NT(a=[1,2,3,1], b=["hey", "ho", "neighbor", "hi"], c=[4.0, 5.0, 6.6, 6.0], d=[0,0,0,0])
 

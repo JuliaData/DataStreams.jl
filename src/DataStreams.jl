@@ -1,8 +1,6 @@
 __precompile__(true)
 module DataStreams
 
-export Data
-
 module Data
 
 using Missings, WeakRefStrings
@@ -640,5 +638,9 @@ include("namedtuples.jl")
 include("query.jl")
 
 end # module Data
+
+using .Data
+export Data
+export @NT
 
 end # module DataStreams
