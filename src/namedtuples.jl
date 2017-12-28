@@ -94,6 +94,7 @@ allocate(::Type{T}, rows, ref) where {T} = @uninit Vector{T}(uninitialized, rows
 # special case for WeakRefStrings
 allocate(::Type{WeakRefString{T}}, rows, ref) where {T} = WeakRefStringArray(ref, WeakRefString{T}, rows)
 allocate(::Type{Union{WeakRefString{T}, Missing}}, rows, ref) where {T} = WeakRefStringArray(ref, Union{WeakRefString{T}, Missing}, rows)
+allocate(::Type{Missing}, rows, ref) = missings(rows)
 
 # NamedTuple doesn't allow duplicate names, so make sure there are no duplicates in our column names
 function makeunique(names::Vector{String})
