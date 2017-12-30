@@ -690,7 +690,9 @@ function Data.stream!(source::So, ::Type{Si}, args...;
         trns = gettransforms(sch, transforms)
         acts = NamedTuple[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
         names = Data.header(sch)
-        append!(acts, [@NT(name=names[col], compute=f, computeargs=(col,)) for (col, f) in trns])
+        for (col, f) in trns
+            Base.insert!(acts, col, @NT(name=names[col], compute=f, computeargs=(col,)))
+        end
     else
         throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
     end
@@ -712,7 +714,9 @@ function Data.stream!(source::So, sink::Si;
         trns = gettransforms(sch, transforms)
         acts = NamedTuple[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
         names = Data.header(sch)
-        append!(acts, [@NT(name=names[col], compute=f, computeargs=(col,)) for (col, f) in trns])
+        for (col, f) in trns
+            Base.insert!(acts, col, @NT(name=names[col], compute=f, computeargs=(col,)))
+        end
     else
         throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
     end
