@@ -8,6 +8,9 @@ using Missings, WeakRefStrings
 if !isdefined(Base, :AbstractRange)
     const AbstractRange = Range
 end
+if !isdefined(Base, :Nothing)
+    const Nothing = Void
+end
 macro uninit(expr)
     if !isdefined(Base, :uninitialized)
         splice!(expr.args, 2)
@@ -69,6 +72,7 @@ Schema(types, rows::Union{Integer,Missing}, metadata::Dict=Dict()) = Schema(type
 
 header(sch::Schema) = sch.header
 types(sch::Schema{R, T}) where {R, T} = Tuple(T.parameters)
+anytypes(sch::Schema{R, T}) where {R, T} = map(identity, T.parameters)
 metadata(sch::Schema) = sch.metadata
 Base.size(sch::Schema) = (sch.rows, sch.cols)
 Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
@@ -638,9 +642,7 @@ include("namedtuples.jl")
 include("query.jl")
 
 end # module Data
-
 using .Data
 export Data
 export @NT
-
 end # module DataStreams
