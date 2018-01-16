@@ -1,174 +1,4 @@
-# function rle(t::Tuple)
-#     typs = Pair{Type, Int}[]
-#     len = 1
-#     T = t[1]
-#     for i = 2:length(t)
-#         TT = t[i]
-#         if T == TT
-#             len += 1
-#         else
-#             push!(typs, T=>len)
-#             T = TT
-#             len = 1
-#         end
-#     end
-#     push!(typs, T=>len)
-#     return typs
-# end
-tuplesubset(tup, ::Tuple{}) = ()
-tuplesubset(tup, inds) = (tup[inds[1]], tuplesubset(tup, Base.tail(inds))...)
-
-import Base.|
-|(::Type{A}, ::Type{B}) where {A, B} = Union{A, B}
-have(x) = x !== nothing
-
-const QueryCodeType = UInt8
-const UNUSED         = 0x00
-const SELECTED       = 0x01
-const SCALARFILTERED = 0x02
-const AGGFILTERED    = 0x04
-const SCALARCOMPUTED = 0x08
-const AGGCOMPUTED    = 0x10
-const SORTED         = 0x20
-const GROUPED        = 0x40
-const AAA = 0x80 # unused
-
-unused(code::QueryCodeType) = code === UNUSED
-
-concat!(A, val) = push!(A, val)
-concat!(A, a::AbstractArray) = append!(A, a)
-
-filter(func, val) = func(val)
-function filter(filtered, func, val)
-    @inbounds for i = 1:length(val)
-        !filtered[i] && continue
-        filtered[i] = func(val[i])
-    end
-end
-
-calculate(func, vals...) = func(vals...)
-calculate(func, vals::AbstractArray...) = func.(vals...)
-
-# Data.Field/Data.Row aggregating
-@generated function aggregate(aggregates, aggkeys, aggvalues)
-    # if @generated
-        default = Tuple(:($T[]) for T in aggvalues.parameters)
-        q = quote
-            entry = get!(aggregates, aggkeys, tuple($(default...)))
-            $((:(push!(entry[$i], aggvalues[$i]);) for i = 1:length(aggvalues.parameters))...)
-        end
-        # println(q)
-        return q
-    # else
-    #     entry = get!(aggregates, aggkeys, Tuple(typeof(val)[] for val in aggvalues))
-    #     for (A, val) in zip(entry, aggvalues)
-    #         push!(A, val)
-    #     end
-    # end
-end
-# Data.Column aggregating
-@generated function aggregate(aggregates::Dict{K}, aggkeys::T, aggvalues) where {K, T <: NTuple{N, Vector{TT} where TT}} where {N}
-    # if @generated
-        len = length(aggkeys.parameters)
-        vallen = length(aggvalues.parameters)
-        inds = Tuple(:(aggkeys[$i][i]) for i = 1:len)
-        valueinds = Tuple(:(aggvalues[$i][sortinds]) for i = 1:vallen)
-        default = Tuple(:($T[]) for T in aggvalues.parameters)
-        q = quote
-            # SoA => AoS
-            len = length(aggkeys[1])
-            aos = @uninit Vector{$K}(uninitialized, len)
-            for i = 1:len
-                aos[i] = tuple($(inds...))
-            end
-            sortinds = sortperm(aos)
-            aos = aos[sortinds]
-            sortedvalues = tuple($(valueinds...))
-            key = aos[1]
-            n = 1
-            for i = 2:len
-                key2 = aos[i]
-                if isequal(key, key2)
-                    continue
-                else
-                    entry = get!(aggregates, key, tuple($(default...)))
-                    $((:(append!(entry[$i], sortedvalues[$i][n:i-1]);) for i = 1:vallen)...)
-                    n = i
-                    key = key2
-                end
-            end
-            entry = get!(aggregates, key, tuple($(default...)))
-            $((:(append!(entry[$i], sortedvalues[$i][n:end]);) for i = 1:vallen)...)
-        end
-        # println(q)
-        return q
-    # else
-    #     println("slow path")
-    # end
-end
-
-# Nested binary search tree for multi-column sorting
-mutable struct Node{T}
-    inds::Vector{Int}
-    value::T
-    left::Union{Node{T}, Nothing}
-    right::Union{Node{T}, Nothing}
-    node::Union{Node, Nothing}
-end
-Node(rowind, ::Tuple{}) = nothing
-Node(rowind, t::Tuple) = Node([rowind], t[1], nothing, nothing, Node(rowind, Base.tail(t)))
-
-insert!(node, rowind, dir, ::Tuple{}) = nothing
-function insert!(node, rowind, dir, tup)
-    key = tup[1]
-    if key == node.value
-        push!(node.inds, rowind)
-        insert!(node.node, rowind, Base.tail(dir), Base.tail(tup))
-    elseif (key < node.value) == dir[1]
-        if have(node.left)
-            insert!(node.left, rowind, dir, tup)
-        else
-            node.left = Node(rowind, tup)
-        end
-    else
-        if have(node.right)
-            insert!(node.right, rowind, dir, tup)
-        else
-            node.right = Node(rowind, tup)
-        end
-    end
-    return
-end
-function inds(n::Node, ind, A::Vector{Int})
-    if have(n.left)
-        inds(n.left, ind, A)
-    end
-    if have(n.node)
-        inds(n.node, ind, A)
-    else
-        for i in n.inds
-            A[ind[]] = i
-            ind[] += 1
-        end
-    end
-    if have(n.right)
-        inds(n.right, ind, A)
-    end
-end
-
-function sort(sortinds, sortkeys::Tuple)
-    dirs = Tuple(p.second for p in sortkeys)
-    root = Node(1, Tuple(p.first[1] for p in sortkeys))
-    for i = 2:length(sortkeys[1].first)
-        @inbounds insert!(root, i, dirs, Tuple(p.first[i] for p in sortkeys))
-    end
-    inds(root, Ref(1), sortinds)
-    return sortinds
-end
-
-struct Sort{ind, asc} end
-sortind(::Type{Sort{ind, asc}}) where {ind, asc} = ind
-sortasc(::Type{Sort{ind, asc}}) where {ind, asc} = asc
+include("queryutils.jl")
 
 """
 Represents a column used in a Data.Query for querying a Data.Source
@@ -393,7 +223,7 @@ macro val(ex)
 end
 
 # generate the entire streaming loop, according to any QueryColumns passed by the user
-function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, offset)
+function generate_loop(knownrows, S, code, cols, extras, sourcetypes, limit, offset)
     streamfrom_inner_loop = codeblock()
     streamto_inner_loop = codeblock()
     pre_outer_loop = codeblock()
@@ -414,10 +244,9 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
     firstcol = nothing
     firstfilter = true
     colind = 1
-    cols = collect(columns.parameters)
     sourceinds = sortperm(cols, by=x->sourceindex(x))
     sourcecolumns = [ind=>cols[ind] for ind in sourceinds]
-
+    SF = S == Data.Row ? Data.Field : S
     starting_row = 1
     if have(offset)
         starting_row = offset + 1
@@ -433,7 +262,6 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
             # keeping track of the first streamed column is handy later
             firstcol = col
         end
-        SF = S == Data.Row ? Data.Field : S
         # streamfrom_inner_loop
         # we can skip any columns that aren't needed in the resultset; this works because the `sourcecolumns` are in sourceindex order
         while colind < sourceindex(col)
@@ -785,7 +613,7 @@ end
         sourcetypes = $sourcetypes
         N = $N
         try
-            $(generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, offset))
+            $(generate_loop(knownrows, S, code, collect(columns.parameters), extras, sourcetypes, limit, offset))
         catch e
             Data.cleanup!(sink)
             rethrow(e)
