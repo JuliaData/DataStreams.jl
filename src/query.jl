@@ -73,10 +73,10 @@ function QueryColumn(sourceindex::Integer, types=[], header=String[];
     if have(compute) || have(computeaggregate)
         args = computeargs
         computefn = have(compute) ? compute : computeaggregate
-        T = Core.Inference.return_type(computefn, have(compute) ? tuplesubset(types, args) : Tuple(Vector{T} for T in tuplesubset(types, args)))
+        T = return_type(computefn, have(compute) ? tuplesubset(types, args) : Tuple(Vector{T} for T in tuplesubset(types, args)))
         name = name == Symbol("") ? Symbol("Column$sinkindex") : Symbol(name)
     elseif have(aggregate)
-        T = Core.Inference.return_type(aggregate, (Vector{T},))
+        T = return_type(aggregate, (Vector{T},))
     end
     S = sort ? Sort{sortindex, sortasc} : nothing
     return QueryColumn{code, T, sourceindex, sinkindex, name, S, args}(filter, having, computefn, aggregate)
@@ -135,8 +135,8 @@ function Query(types::Vector{Any}, header::Vector{String}, actions::Vector{Any},
         end
         foreach(i->i in cols || push!(extras, i), get(x, :computeargs, ()))
         push!(columns, QueryColumn(
-                        get(()->(len += 1; return len), x, :col), 
-                        types, header; 
+                        get(()->(len += 1; return len), x, :col),
+                        types, header;
                         sinkindex=sinkindex,
                         sortindex=sortindex,
                         ((k, getfield(x, k)) for k in keys(x))...)
@@ -160,7 +160,7 @@ function Query(types::Vector{Any}, header::Vector{String}, actions::Vector{Any},
     append!(columns, QueryColumn(x, types, header; hide=true, sinkindex=outlen+i) for (i, x) in enumerate(Base.sort(collect(extras))))
     columns = Tuple(columns)
 
-    return Query{querycode, typeof(columns), Tuple(aggcompute_extras), limit, offset}(source, columns)
+    return Query{querycode, typeof(columns), Tuple(aggcompute_extras), limit, offset}(columns)
 end
 
 """
@@ -412,7 +412,7 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
             push!(aggregation_inner_loop.args, :($(@vals sinkindex(col))[i] = q.columns[$ind].compute($(valueargs...))))
         end
         if aggfiltered(code)
-            unshift!(post_aggregation_loop.args, :(filtered = fill(true, length(aggregates))))
+            pushfirst!(post_aggregation_loop.args, :(filtered = fill(true, length(aggregates))))
         end
         aggregation_loop = quote
             $pre_aggregation_loop
@@ -448,8 +448,7 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
                         :(vals = NamedTuple{$names, $types}(($(inds...),)))
                     else
                         exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
-                        nt = NamedTuples.make_tuple(exprs)
-                        :(vals = $nt($(inds...)))
+                        :(vals = $(NamedTuples.make_tuple(exprs))($(inds...)))
                     end
                 push!(post_outer_loop_row_streaming_inner_loop.args,
                     :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + row, 0, Val{$knownrows})))
@@ -469,8 +468,7 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
                 :(vals = NamedTuple{$names, $types}(($(inds...),)))
             else
                 exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
-                nt = NamedTuples.make_tuple(exprs)
-                :(vals = $nt($(inds...)))
+                :(vals = $(NamedTuples.make_tuple(exprs))($(inds...)))
             end
         push!(streamto_inner_loop.args,
             :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + sinkrow, 0, Val{$knownrows})))
@@ -524,7 +522,7 @@ function Data.stream!(source::So, ::Type{Si}, args...;
         # exclude transform columns, add scalarcomputed transform column w/ same name
         sch = Data.schema(source)
         trns = gettransforms(sch, transforms)
-        acts = NamedTuple[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
+        acts = Any[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
         names = Data.header(sch)
         for (col, f) in trns
             Base.insert!(acts, col, @NT(name=names[col], compute=f, computeargs=(col,)))
@@ -551,7 +549,7 @@ function Data.stream!(source::So, sink::Si;
         # exclude transform columns, add scalarcomputed transform column w/ same name
         sch = Data.schema(source)
         trns = gettransforms(sch, transforms)
-        acts = NamedTuple[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
+        acts = Any[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
         names = Data.header(sch)
         for (col, f) in trns
             Base.insert!(acts, col, @NT(name=names[col], compute=f, computeargs=(col,)))

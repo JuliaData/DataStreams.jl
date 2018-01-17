@@ -3,8 +3,8 @@ function remove_line_number_nodes(ex)
     for (i, arg) in enumerate(ex.args)
         if typeof(arg) <: LineNumberNode
             push!(todelete, i)
-        elseif typeof(arg) <: Expr
-            expr(arg)
+        elseif typeof(arg) <: Expr && arg.head != :macrocall
+            remove_line_number_nodes(arg)
         end
     end
     deleteat!(ex.args, todelete)

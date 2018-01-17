@@ -135,54 +135,6 @@ sch = DataStreams.Data.Schema((Int,), ["col1"])
 
 end # @testset "Data.Schema"
 
-@testset "Data.transform" begin
-
-# knownrows vs. not
-sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
-sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), true)
-@test sch == sch2
-@test trans == (identity,)
-
-sch = DataStreams.Data.Schema((Int, Float64, String,), ["col1", "col2", "col3"], missing)
-sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), true)
-@test sch == sch2
-@test trans == (identity, identity, identity)
-
-sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
-f = x->string(x)
-sch2, trans = DataStreams.Data.transform(sch, Dict(1=>f), true)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (String,)
-@test trans == (f,)
-
-sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], missing)
-f1 = Float64
-f2 = x->parse(Int, x)
-sch2, trans = DataStreams.Data.transform(sch, Dict{String, Base.Callable}("col1"=>f1, "col3"=>f2), true)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Float64, Float64, VERSION < v"0.7.0-DEV.3017" ? Int : Union{Void, Int})
-@test trans == (f1, identity, f2)
-
-sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], missing)
-sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), false)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Int, Float64, String)
-@test trans == (identity, identity, identity)
-
-sch = DataStreams.Data.Schema((Union{String, Missing},), ["col1"])
-sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), false)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Union{String, Missing},)
-@test trans == (identity,)
-
-sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
-sch2, trans = DataStreams.Data.transform(sch, Dict("col1"=>sin), false)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Float64,)
-@test trans == (sin,)
-
-end # @testset "Data.transform"
-
 @testset "Data.stream!" begin
 
 ### ALL PAIRS TESTING

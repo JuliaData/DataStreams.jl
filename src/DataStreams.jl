@@ -15,6 +15,16 @@ macro uninit(expr)
     return esc(expr)
 end
 
+@static if isdefined(Core, :Inference)
+    import Core.Inference: return_type
+else
+    import Core.Compiler: return_type
+end
+
+@static if !isdefined(Base, :pushfirst!)
+    const pushfirst! = unshift!
+end
+
 # Data.Schema
 """
 A `Data.Schema` describes a tabular dataset, i.e. a set of named, typed columns with records as rows
@@ -69,6 +79,7 @@ Schema(types, rows::Union{Integer,Missing}, metadata::Dict=Dict()) = Schema(type
 
 header(sch::Schema) = sch.header
 types(sch::Schema{R, T}) where {R, T} = Tuple(T.parameters)
+anytypes(sch::Schema{R, T}) where {R, T} = collect(T.parameters)
 metadata(sch::Schema) = sch.metadata
 Base.size(sch::Schema) = (sch.rows, sch.cols)
 Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))
@@ -432,7 +443,7 @@ most likely with `append=true` being passed, to enable the accumulation of sever
 Two "builtin" Source/Sink types that are included with the DataStreams package are the `Data.Table` and `Data.RowTable` types. `Data.Table` is a NamedTuple of AbstractVectors, with column names as NamedTuple fieldnames.
 This type supports both `Data.Field` and `Data.Column` streaming. `Data.RowTable` is just a Vector of NamedTuples, and as such, only supports `Data.Field` streaming.
 
-In addition, any `Data.Source` can be iterated via the `Data.rows(source)` function, which returns a NamedTuple-iterator over the rows of a source. 
+In addition, any `Data.Source` can be iterated via the `Data.rows(source)` function, which returns a NamedTuple-iterator over the rows of a source.
 """
 function stream! end
 
@@ -528,7 +539,7 @@ function inner_loop(::Type{Val{N}}, ::Type{S}, ::Type{Val{homogeneous}}, ::Type{
                 nt = NamedTuples.make_tuple(exprs)
                 :(vals = $nt($(vals...)))
             end
-        loop = quote 
+        loop = quote
             $((:($(Symbol("val_$col")) = Data.streamfrom(source, Data.Field, sourcetypes[$col], row, $col)) for col = 1:N)...)
             $out
             Data.streamto!(sink, Data.Row, vals, sinkrowoffset + row, 0, $knownrows)
