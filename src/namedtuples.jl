@@ -1,15 +1,3 @@
-@static if !isdefined(Core, :NamedTuple)
-using NamedTuples
-function Base.get(f::Function, nt::NamedTuple, k)
-    return haskey(nt, k) ? nt[k] : f()
-end
-else
-macro NT(args...)
-    return esc(:(($(args...),)))
-end
-end
-export @NT
-
 # Source/Sink with NamedTuple, both row and column oriented
 "A default row-oriented \"table\" that supports both the `Data.Source` and `Data.Sink` interfaces. Can be used like `Data.stream!(source, Data.RowTable)`. It is represented as a Vector of NamedTuples."
 const RowTable{T} = Vector{T} where {T <: NamedTuple}
