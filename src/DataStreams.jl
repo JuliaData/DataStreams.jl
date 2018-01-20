@@ -4,29 +4,12 @@ module DataStreams
 module Data
 
 using Missings, WeakRefStrings
-
-if !isdefined(Base, :AbstractRange)
-    const AbstractRange = Range
-end
-macro uninit(expr)
-    if !isdefined(Base, :uninitialized)
-        splice!(expr.args, 2)
-    end
-    return esc(expr)
-end
+using Compat
 
 @static if isdefined(Core, :Inference)
     import Core.Inference: return_type
 else
     import Core.Compiler: return_type
-end
-
-@static if !isdefined(Base, :pushfirst!)
-    const pushfirst! = unshift!
-end
-
-@static if !isdefined(Base, :Nothing)
-    const Nothing = Void
 end
 
 # Data.Schema
