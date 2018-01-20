@@ -351,7 +351,7 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
             push!(aggregation_inner_loop.args, :($(@vals out)[i] = k[$(length(aggregationkeys))]))
         elseif !aggcomputed(col) && (selected(col) || sourceindex(col) in extras)
             push!(aggregationvalues, col)
-            push!(pre_aggregation_loop.args, :($(@vals out) = Vector{Any}(uninitialized, length(aggregates))))
+            push!(pre_aggregation_loop.args, :($(@vals out) = Vector{$(T(col))}(uninitialized, length(aggregates))))
             if selected(col)
                 push!(aggregation_inner_loop.args, :($(@vals out)[i] = q.columns[$ind].aggregate(v[$(length(aggregationvalues))])))
             end

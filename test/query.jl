@@ -1,9 +1,4 @@
-using DataStreams
-@static if VERSION < v"0.7.0-DEV.2005"
-    using Base.Test
-else
-    using Test
-end
+using DataStreams, Compat.Test
 
 df = @NT(a=[1,2,3,1], b=["hey", "ho", "neighbor", "hi"], c=[4.0, 5.0, 6.6, 6.0], d=[0,0,0,0])
 
