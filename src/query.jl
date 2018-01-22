@@ -230,6 +230,124 @@ macro val(ex)
     return esc(:(Symbol(string("val", $ex))))
 end
 
+#rle
+struct SkipRange{I, J} end
+function streamfrom(::SkipRange{I, J}, SF) where {I, J}
+    if J - I == 0
+        return :(Data.skipfield!(source, $SF, Any, sourcerow, $I))
+    else
+        return quote
+            for colind = $I:$J
+                Data.skipfield!(source, $SF, Any, sourcerow, colind)
+            end
+        end
+    end
+end
+struct ColumnRange{T, I, J} end
+function streamfrom(::ColumnRange{T, I, J}, SF) where {T, I, J}
+    
+end
+# only works for generate_non_query_loop, so ignores grouped/aggregated/sorted columns
+function rle(cols)
+    res = []
+    c = cols[1]
+    colind = 1
+    for i = 2:length(cols)
+        col = cols[i]
+        if colind < sourceindex(col)
+            # need to skip some columns
+            push!(res, SkipRange{colind, sourceindex(col) - 1})
+            colind += sourceindex(col) - colind
+            c = col
+            continue
+        end
+        if T(c) != T(col) || scalarcomputed(col)
+            # change in column types
+            if sourceindex(col) - sourceindex(c) > 1
+                push!(res, ColumnRange{T(c), sourceindex(c), sourceindex(col) - 1})
+            else
+                push!(res, c)
+                c = col
+            end
+        else
+            colind += 1
+        end
+    end
+end
+
+# generate a simple non-query streaming loop that will be more robust to extremely wide datasets
+function generate_nonquery_loop(S, code, sourcecolumns, sourcetypes, limit, offset) 
+    streamfrom_inner_loop = codeblock()
+    streamto_inner_loop = codeblock()
+    pre_outer_loop = codeblock()
+    firstcol = nothing
+
+    #TODO: do rle on sourcecolumns, loop over that below
+
+    colind = 1
+    SF = S == Data.Row ? Data.Field : S
+    starting_row = 1
+    if have(offset)
+        starting_row = offset + 1
+        push!(pre_outer_loop.args, :(Data.skiprows!(source, $S, 1, $offset)))
+    end
+    rows = have(limit) ? :(min(rows, $(starting_row + limit - 1))) : :rows
+    for (ind, col) in sourcecolumns
+        si = sourceindex(col)
+        out = sinkindex(col)
+        if out == 1
+            # keeping track of the first streamed column is handy later
+            firstcol = col
+        end
+        # streamfrom_inner_loop
+        # we can skip any columns that aren't needed in the resultset; this works because the `sourcecolumns` are in sourceindex order
+        while colind < sourceindex(col)
+            push!(streamfrom_inner_loop.args, :(Data.skipfield!(source, $SF, $(sourcetypes[colind]), sourcerow, $colind)))
+            colind += 1
+        end
+        colind += 1
+        if scalarcomputed(col)
+            # if the column is scalarcomputed, there's no streamfrom, we calculate from previously streamed values and the columns' `args`
+            # this works because scalarcomputed columns are sorted last in `columns`
+            computeargs = Tuple((@val c) for c in args(col))
+            push!(streamfrom_inner_loop.args, :($(@val si) = calculate(q.columns[$ind].compute, $(computeargs...))))
+        elseif !aggcomputed(col)
+            # otherwise, if the column isn't aggcomputed, we just streamfrom
+            r = (S == Data.Column && (have(offset) || have(limit))) ? :(sourcerow:$rows) : :sourcerow
+            push!(streamfrom_inner_loop.args, :($(@val si) = Data.streamfrom(source, $SF, $(T(col)), $r, $(sourceindex(col)))))
+        end
+    end
+    # streamfrom_inner_loop
+    if S == Data.Column
+        push!(streamfrom_inner_loop.args, :(cur_row = length($(@val sourceindex(firstcol)))))
+    end
+    if S == Data.Row
+        # streamto_inner_loop
+        names = Tuple(name(x) for x in sourcecolumns if selected(x))
+        types = Tuple{(T(x) for x in sourcecolumns if selected(x))...}
+        inds = Tuple(:($(@val sourceindex(x))) for x in sourcecolumns if selected(x))
+        vals = @static if isdefined(Core, :NamedTuple)
+            :(vals = NamedTuple{$names, $types}(($(inds...),)))
+        else
+            exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
+            :(vals = eval(NamedTuples.make_tuple($exprs))($(inds...)))
+        end
+        push!(streamto_inner_loop.args,
+            :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + sinkrow, 0, Val{true})))
+    end
+    # println("generating loop w/ known rows...")
+    return quote
+        $pre_outer_loop
+        sinkrow = 1
+        for sourcerow = $starting_row:$rows
+            $streamfrom_inner_loop
+            $streamto_inner_loop
+            @label end_of_loop
+            sinkrow += 1
+        end
+    end
+end
+
 # generate the entire streaming loop, according to any QueryColumns passed by the user
 function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::Vector{Any}, extras::Vector{Int}, sourcetypes, limit, offset)
     streamfrom_inner_loop = codeblock()
@@ -473,36 +591,21 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
         push!(streamto_inner_loop.args,
             :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + sinkrow, 0, Val{$knownrows})))
     end
-
-    if knownrows && (S == Data.Field || S == Data.Row) && !sorted(code)
-        # println("generating loop w/ known rows...")
-        return quote
-            $pre_outer_loop
-            sinkrow = 1
-            for sourcerow = $starting_row:$rows
-                $streamfrom_inner_loop
-                $streamto_inner_loop
-                @label end_of_loop
-                sinkrow += 1
-            end
+    return quote
+        $pre_outer_loop
+        sourcerow = $starting_row
+        sinkrow = 1
+        cur_row = 1
+        while true
+            $streamfrom_inner_loop
+            $streamto_inner_loop
+            @label end_of_loop
+            sourcerow += cur_row # will be 1 for Data.Field, length(val) for Data.Column
+            sinkrow += cur_row
+            Data.isdone(source, sourcerow, cols, $rows, cols) && break
         end
-    else
-        return quote
-            $pre_outer_loop
-            sourcerow = $starting_row
-            sinkrow = 1
-            cur_row = 1
-            while true
-                $streamfrom_inner_loop
-                $streamto_inner_loop
-                @label end_of_loop
-                sourcerow += cur_row # will be 1 for Data.Field, length(val) for Data.Column
-                sinkrow += cur_row
-                Data.isdone(source, sourcerow, cols, $rows, cols) && break
-            end
-            Data.setrows!(source, sourcerow)
-            $post_outer_loop
-        end
+        Data.setrows!(source, sourcerow)
+        $post_outer_loop
     end
 end
 
@@ -625,7 +728,11 @@ end
         sourcetypes = $sourcetypes
         N = $N
         try
-            $(generate_loop(knownrows, S, code, collect(Any, columns.parameters), collect(Int, extras), collect(Any, sourcetypes), limit, offset))
+         $(if knownrows && (S == Data.Field || S == Data.Row) && !sorted(code)
+               generate_nonquery_loop(S, code, collect(Any, sourcetypes), limit, offset) 
+           else
+                generate_loop(knownrows, S, code, collect(Any, columns.parameters), collect(Int, extras), collect(Any, sourcetypes), limit, offset)
+            end)
         catch e
             Data.cleanup!(sink)
             rethrow(e)
