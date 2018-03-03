@@ -11,6 +11,12 @@ using Compat
 else
     import Core.Compiler: return_type
 end
+@static if !isdefined(Base, :parentmodule)
+    const parentmodule = Base.datatype_module
+end
+@static if !isdefined(Base, :nameof)
+    const nameof = Base.datatype_name
+end
 
 @static if !isdefined(Base, :pushfirst!)
     const pushfirst! = unshift!
@@ -466,7 +472,7 @@ function skiprows!(source, S, from, to)
     end
 end
 
-datatype(T) = eval(Base.datatype_module(Base.unwrap_unionall(T)), Base.datatype_name(T))
+datatype(T) = eval(parentmodule(Base.unwrap_unionall(T)), nameof(T))
 
 @static if !isdefined(Core, :NamedTuple)
 include("nt.jl")
