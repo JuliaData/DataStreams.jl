@@ -1,16 +1,12 @@
-using DataStreams
-@static if VERSION < v"0.7.0-DEV.2005"
-    using Base.Test
-else
-    using Test
-end
+using DataStreams, Compat.Test
 
 df = @NT(a=[1,2,3,1], b=["hey", "ho", "neighbor", "hi"], c=[4.0, 5.0, 6.6, 6.0], d=[0,0,0,0])
 
-# sink = Data.RowTable
+# sink = Data.Table
 cell(x::Data.Table, row, col) = x[col][row]
 cell(x::Data.RowTable, row, col) = x[row][col]
 
+@testset "Data.query" begin
 for sink in (Data.Table, Data.RowTable)
     # select *
     res = Data.query(df, [@NT(col=1,), @NT(col=2,), @NT(col=3,), @NT(col=4,)], sink)
@@ -123,7 +119,7 @@ for sink in (Data.Table, Data.RowTable)
     # select a, sum(c) group by a
     res = Data.query(df, [@NT(col=1, group=true), @NT(col=3, aggregate=sum)], sink)
     sch = Data.schema(res)
-    @test Data.types(sch) == (Int, Any)
+    @test Data.types(sch) == (Int, Float64)
     @test Data.header(sch) == ["a", "c"]
     @test size(sch) == (3, 2)
 
@@ -158,7 +154,7 @@ for sink in (Data.Table, Data.RowTable)
     # select a, sum(c) group by a having sum(c) < 7.0
     res = Data.query(df, [@NT(col=1, group=true), @NT(col=3, aggregate=sum, having=x->x < 7.0)], sink)
     sch = Data.schema(res)
-    @test Data.types(sch) == (Int, Any)
+    @test Data.types(sch) == (Int, Float64)
     @test Data.header(sch) == ["a", "c"]
     @test size(sch) == (2, 2)
 
@@ -221,21 +217,22 @@ for sink in (Data.Table, Data.RowTable)
     # select a, sum(c) group by a
     res = Data.query(df, [@NT(col=1, group=true, sort=true), @NT(col=3, aggregate=sum)], sink)
     sch = Data.schema(res)
-    @test Data.types(sch) == (Int, Any)
+    @test Data.types(sch) == (Int, Float64)
     @test Data.header(sch) == ["a", "c"]
     @test size(sch) == (3, 2)
 
     # select a, sum(c) group by a order by a having sum(c) < 7.0
     res = Data.query(df, [@NT(col=1, group=true, sort=true), @NT(col=3, aggregate=sum, having=x->x < 7.0)], sink)
     sch = Data.schema(res)
-    @test Data.types(sch) == (Int, Any)
+    @test Data.types(sch) == (Int, Float64)
     @test Data.header(sch) == ["a", "c"]
     @test size(sch) == (2, 2)
 
     # select a, sum(c) group by a order by b desc having sum(c) < 7.0
     res = Data.query(df, [@NT(col=1, group=true), @NT(col=3, aggregate=sum, sort=true, sortasc=false, having=x->x < 7.0)], sink)
     sch = Data.schema(res)
-    @test Data.types(sch) == (Int, Any)
+    @test Data.types(sch) == (Int, Float64)
     @test Data.header(sch) == ["a", "c"]
     @test size(sch) == (2, 2)
 end
+end # testset "Data.query"

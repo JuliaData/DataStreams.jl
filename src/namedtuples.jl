@@ -1,15 +1,3 @@
-@static if !isdefined(Core, :NamedTuple)
-using NamedTuples
-function Base.get(f::Function, nt::NamedTuple, k)
-    return haskey(nt, k) ? nt[k] : f()
-end
-else
-macro NT(args...)
-    return esc(:(($(args...),)))
-end
-end
-export @NT
-
 # Source/Sink with NamedTuple, both row and column oriented
 "A default row-oriented \"table\" that supports both the `Data.Source` and `Data.Sink` interfaces. Can be used like `Data.stream!(source, Data.RowTable)`. It is represented as a Vector of NamedTuples."
 const RowTable{T} = Vector{T} where {T <: NamedTuple}
@@ -88,7 +76,7 @@ Data.streamtypes(::Type{<:NamedTuple}) = [Data.Column, Data.Field]
 Data.weakrefstrings(::Type{<:NamedTuple}) = true
 
 # convenience methods for "allocating" a single column for streaming
-allocate(::Type{T}, rows, ref) where {T} = @uninit Vector{T}(uninitialized, rows)
+allocate(::Type{T}, rows, ref) where {T} = Vector{T}(uninitialized, rows)
 # allocate(::Type{T}, rows, ref) where {T <: Union{CategoricalValue, Missing}} =
 #     CategoricalArray{CategoricalArrays.unwrap_catvalue_type(T)}(rows)
 # special case for WeakRefStrings
@@ -124,10 +112,10 @@ function Array(sch::Data.Schema{R}, ::Type{Data.Row}, append::Bool=false, args..
         names = makeunique(Data.header(sch))
         # @show rows, names, types
         sink = @static if isdefined(Core, :NamedTuple)
-                @uninit Vector{NamedTuple{names, Tuple{types...}}}(uninitialized, rows)
+                Vector{NamedTuple{names, Tuple{types...}}}(uninitialized, rows)
             else
                 exprs = [:($nm::$typ) for (nm, typ) in zip(names, types)]
-                @uninit Vector{eval(NamedTuples.make_tuple(exprs))}(uninitialized, rows)
+                Vector{eval(NamedTuples.make_tuple(exprs))}(uninitialized, rows)
             end
         sch.rows = rows
     end

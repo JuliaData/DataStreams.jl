@@ -1,174 +1,4 @@
-# function rle(t::Tuple)
-#     typs = Pair{Type, Int}[]
-#     len = 1
-#     T = t[1]
-#     for i = 2:length(t)
-#         TT = t[i]
-#         if T == TT
-#             len += 1
-#         else
-#             push!(typs, T=>len)
-#             T = TT
-#             len = 1
-#         end
-#     end
-#     push!(typs, T=>len)
-#     return typs
-# end
-tuplesubset(tup, ::Tuple{}) = ()
-tuplesubset(tup, inds) = (tup[inds[1]], tuplesubset(tup, Base.tail(inds))...)
-
-import Base.|
-|(::Type{A}, ::Type{B}) where {A, B} = Union{A, B}
-have(x) = x !== nothing
-
-const QueryCodeType = UInt8
-const UNUSED         = 0x00
-const SELECTED       = 0x01
-const SCALARFILTERED = 0x02
-const AGGFILTERED    = 0x04
-const SCALARCOMPUTED = 0x08
-const AGGCOMPUTED    = 0x10
-const SORTED         = 0x20
-const GROUPED        = 0x40
-const AAA = 0x80
-
-unused(code::QueryCodeType) = code === UNUSED
-
-concat!(A, val) = push!(A, val)
-concat!(A, a::AbstractArray) = append!(A, a)
-
-filter(func, val) = func(val)
-function filter(filtered, func, val)
-    @inbounds for i = 1:length(val)
-        !filtered[i] && continue
-        filtered[i] = func(val[i])
-    end
-end
-
-calculate(func, vals...) = func(vals...)
-calculate(func, vals::AbstractArray...) = func.(vals...)
-
-# Data.Field/Data.Row aggregating
-@generated function aggregate(aggregates, aggkeys, aggvalues)
-    # if @generated
-        default = Tuple(:($T[]) for T in aggvalues.parameters)
-        q = quote
-            entry = get!(aggregates, aggkeys, tuple($(default...)))
-            $((:(push!(entry[$i], aggvalues[$i]);) for i = 1:length(aggvalues.parameters))...)
-        end
-        # println(q)
-        return q
-    # else
-    #     entry = get!(aggregates, aggkeys, Tuple(typeof(val)[] for val in aggvalues))
-    #     for (A, val) in zip(entry, aggvalues)
-    #         push!(A, val)
-    #     end
-    # end
-end
-# Data.Column aggregating
-@generated function aggregate(aggregates::Dict{K}, aggkeys::T, aggvalues) where {K, T <: NTuple{N, Vector{TT} where TT}} where {N}
-    # if @generated
-        len = length(aggkeys.parameters)
-        vallen = length(aggvalues.parameters)
-        inds = Tuple(:(aggkeys[$i][i]) for i = 1:len)
-        valueinds = Tuple(:(aggvalues[$i][sortinds]) for i = 1:vallen)
-        default = Tuple(:($T[]) for T in aggvalues.parameters)
-        q = quote
-            # SoA => AoS
-            len = length(aggkeys[1])
-            aos = @uninit Vector{$K}(uninitialized, len)
-            for i = 1:len
-                aos[i] = tuple($(inds...))
-            end
-            sortinds = sortperm(aos)
-            aos = aos[sortinds]
-            sortedvalues = tuple($(valueinds...))
-            key = aos[1]
-            n = 1
-            for i = 2:len
-                key2 = aos[i]
-                if isequal(key, key2)
-                    continue
-                else
-                    entry = get!(aggregates, key, tuple($(default...)))
-                    $((:(append!(entry[$i], sortedvalues[$i][n:i-1]);) for i = 1:vallen)...)
-                    n = i
-                    key = key2
-                end
-            end
-            entry = get!(aggregates, key, tuple($(default...)))
-            $((:(append!(entry[$i], sortedvalues[$i][n:end]);) for i = 1:vallen)...)
-        end
-        # println(q)
-        return q
-    # else
-    #     println("slow path")
-    # end
-end
-
-# Nested binary search tree for multi-column sorting
-mutable struct Node{T}
-    inds::Vector{Int}
-    value::T
-    left::Union{Node{T}, Void}
-    right::Union{Node{T}, Void}
-    node::Union{Node, Void}
-end
-Node(rowind, ::Tuple{}) = nothing
-Node(rowind, t::Tuple) = Node([rowind], t[1], nothing, nothing, Node(rowind, Base.tail(t)))
-
-insert!(node, rowind, dir, ::Tuple{}) = nothing
-function insert!(node, rowind, dir, tup)
-    key = tup[1]
-    if key == node.value
-        push!(node.inds, rowind)
-        insert!(node.node, rowind, Base.tail(dir), Base.tail(tup))
-    elseif (key < node.value) == dir[1]
-        if have(node.left)
-            insert!(node.left, rowind, dir, tup)
-        else
-            node.left = Node(rowind, tup)
-        end
-    else
-        if have(node.right)
-            insert!(node.right, rowind, dir, tup)
-        else
-            node.right = Node(rowind, tup)
-        end
-    end
-    return
-end
-function inds(n::Node, ind, A::Vector{Int})
-    if have(n.left)
-        inds(n.left, ind, A)
-    end
-    if have(n.node)
-        inds(n.node, ind, A)
-    else
-        for i in n.inds
-            A[ind[]] = i
-            ind[] += 1
-        end
-    end
-    if have(n.right)
-        inds(n.right, ind, A)
-    end
-end
-
-function sort(sortinds, sortkeys::Tuple)
-    dirs = Tuple(p.second for p in sortkeys)
-    root = Node(1, Tuple(p.first[1] for p in sortkeys))
-    for i = 2:length(sortkeys[1].first)
-        @inbounds insert!(root, i, dirs, Tuple(p.first[i] for p in sortkeys))
-    end
-    inds(root, Ref(1), sortinds)
-    return sortinds
-end
-
-struct Sort{ind, asc} end
-sortind(::Type{Sort{ind, asc}}) where {ind, asc} = ind
-sortasc(::Type{Sort{ind, asc}}) where {ind, asc} = asc
+include("queryutils.jl")
 
 """
 Represents a column used in a Data.Query for querying a Data.Source
@@ -178,8 +8,8 @@ Passed as the `actions` argument as an array of NamedTuples to `Data.query(sourc
 Options include:
 
   * `col::Integer`: reference to a source column index
-  * `name`: the name the column should have in the resulting query, if none is provided, it will be auto-generated
-  * `T`: the type of the column, if not provided, it will be inferred from the source
+  * `name`: the name the column should have in the resulting query, if none is provided, it will be inferred from the `header` and `col` arguments or auto-generated
+  * `T`: the type of the column, if not provided, it will be inferred from the `types` and `col` arguments
   * `hide::Bool`: whether the column should be shown in the query resultset; `hide=false` is useful for columns used only for filtering and not needed in the final resultset
   * `filter::Function`: a function to apply to this column to filter out rows where the result is `false`
   * `having::Function`: a function to apply to an aggregated column to filter out rows after applying an aggregation function
@@ -193,27 +23,27 @@ Options include:
   * `aggregate::Function`: a function to reduce a columns values based on grouping keys, should be of the form `f(A::AbstractArray) => scalar`
 """
 struct QueryColumn{code, T, sourceindex, sinkindex, name, sort, args}
-    filter::(Function|Void)
-    having::(Function|Void)
-    compute::(Function|Void)
-    aggregate::(Function|Void)
+    filter::(Function|Nothing)
+    having::(Function|Nothing)
+    compute::(Function|Nothing)
+    aggregate::(Function|Nothing)
 end
 
-function QueryColumn(sourceindex, types=(), header=[];
+function QueryColumn(sourceindex::Integer, types=[], header=String[];
                 name=Symbol(""),
                 T::Type=Any,
-                sinkindex::(Integer|Void)=sourceindex,
+                sinkindex::(Integer|Nothing)=sourceindex,
                 hide::Bool=false,
-                filter::(Function|Void)=nothing,
-                having::(Function|Void)=nothing,
-                compute::(Function|Void)=nothing,
-                computeaggregate::(Function|Void)=nothing,
+                filter::(Function|Nothing)=nothing,
+                having::(Function|Nothing)=nothing,
+                compute::(Function|Nothing)=nothing,
+                computeaggregate::(Function|Nothing)=nothing,
                 computeargs=nothing,
                 sort::Bool=false,
-                sortindex::(Integer|Void)=nothing,
+                sortindex::(Integer|Nothing)=nothing,
                 sortasc::Bool=true,
                 group::Bool=false,
-                aggregate::(Function|Void)=nothing,
+                aggregate::(Function|Nothing)=nothing,
                 kwargs...)
     # validate
     have(compute) && have(computeaggregate) && throw(ArgumentError("column can't be computed as scalar & aggregate"))
@@ -235,24 +65,21 @@ function QueryColumn(sourceindex, types=(), header=[];
                      (having, AGGFILTERED),
                      (compute, SCALARCOMPUTED),
                      (computeaggregate, AGGCOMPUTED))
-        if have(arg)
-            code |= c
-        end
+        have(arg) && (code |= c)
     end
+    T = (T == Any && length(types) >= sourceindex) ? types[sourceindex] : T
+    name = name == Symbol("") && length(header) >= sourceindex ? Symbol(header[sourceindex]) : Symbol(name)
+    computefn = nothing
     if have(compute) || have(computeaggregate)
         args = computeargs
-        compute = have(compute) ? compute : computeaggregate
-        T = Core.Inference.return_type(compute, have(compute) ? tuplesubset(types, args) : Tuple(Vector{T} for T in tuplesubset(types, args)))
+        computefn = have(compute) ? compute : computeaggregate
+        T = return_type(computefn, have(compute) ? tuplesubset(types, args) : Tuple(Vector{T} for T in tuplesubset(types, args)))
         name = name == Symbol("") ? Symbol("Column$sinkindex") : Symbol(name)
     elseif have(aggregate)
-        T = Any
-        name = name == Symbol("") && length(header) >= sourceindex ? Symbol(header[sourceindex]) : Symbol(name)
-    else
-        T = (T == Any && length(types) >= sourceindex) ? types[sourceindex] : T
-        name = name == Symbol("") && length(header) >= sourceindex ? Symbol(header[sourceindex]) : Symbol(name)
+        T = return_type(aggregate, (Vector{T},))
     end
     S = sort ? Sort{sortindex, sortasc} : nothing
-    return QueryColumn{code, T, sourceindex, sinkindex, name, S, args}(filter, having, compute, aggregate)
+    return QueryColumn{code, T, sourceindex, sinkindex, name, S, args}(filter, having, computefn, aggregate)
 end
 
 for (f, c) in (:selected=>SELECTED,
@@ -274,15 +101,11 @@ end
 
 # E type parameter is for a tuple of integers corresponding to
 # column index inputs for aggcomputed columns
-struct Query{code, S, T, E, L, O}
-    source::S
+struct Query{code, T, E, L, O}
     columns::T # Tuple{QueryColumn...}, columns are in *output* order (i.e. monotonically increasing by sinkindex)
 end
 
-function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
-    sch = Data.schema(source)
-    types = Data.types(sch)
-    header = Data.header(sch)
+function Query(types::Vector{Any}, header::Vector{String}, actions::Vector{Any}, limit=nothing, offset=nothing)
     len = length(types)
     outlen = length(types)
     columns = []
@@ -312,8 +135,8 @@ function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
         end
         foreach(i->i in cols || push!(extras, i), get(x, :computeargs, ()))
         push!(columns, QueryColumn(
-                        get(()->(len += 1; return len), x, :col), 
-                        types, header; 
+                        get(()->(len += 1; return len), x, :col),
+                        types, header;
                         sinkindex=sinkindex,
                         sortindex=sortindex,
                         ((k, getfield(x, k)) for k in keys(x))...)
@@ -337,7 +160,7 @@ function Query(source::S, actions, limit=nothing, offset=nothing) where {S}
     append!(columns, QueryColumn(x, types, header; hide=true, sinkindex=outlen+i) for (i, x) in enumerate(Base.sort(collect(extras))))
     columns = Tuple(columns)
 
-    return Query{querycode, S, typeof(columns), Tuple(aggcompute_extras), limit, offset}(source, columns)
+    return Query{querycode, typeof(columns), Tuple(aggcompute_extras), limit, offset}(columns)
 end
 
 """
@@ -350,8 +173,8 @@ Query a valid DataStreams `Data.Source` according to query `actions` and stream 
 `actions` is an array of NamedTuples, w/ each NamedTuple including one or more of the following query arguments:
 
   * `col::Integer`: reference to a source column index
-  * `name`: the name the column should have in the resulting query, if none is provided, it will be auto-generated
-  * `T`: the type of the column, if not provided, it will be inferred from the source
+  * `name`: the name the column should have in the resulting query, if none is provided, it will be inferred from the `header` and `col` arguments or auto-generated
+  * `T`: the type of the column, if not provided, it will be inferred from the `types` and `col` arguments
   * `hide::Bool`: whether the column should be shown in the query resultset; `hide=false` is useful for columns used only for filtering and not needed in the final resultset
   * `filter::Function`: a function to apply to this column to filter out rows where the result is `false`
   * `having::Function`: a function to apply to an aggregated column to filter out rows after applying an aggregation function
@@ -364,44 +187,40 @@ Query a valid DataStreams `Data.Source` according to query `actions` and stream 
   * `group::Bool`: whether this column should be grouped, causing other columns to be aggregated
   * `aggregate::Function`: a function to reduce a columns values based on grouping keys, should be of the form `f(A::AbstractArray) => scalar`
 """
-function query(source, actions=[], sink=Table, args...; append::Bool=false, limit::(Integer|Nothing)=nothing, offset::(Integer|Nothing)=nothing)
-    q = Query(source, actions, limit, offset)
-    sink = Data.stream!(q, sink, args...; append=append)
-    return Data.close!(sink)
+function query end
+
+function query(source, actions=[], sink::Type{Si}=Table, args...; append::Bool=false, limit::(Integer|Nothing)=nothing, offset::(Integer|Nothing)=nothing, kwargs...) where {Si}
+    sch = Data.schema(source)
+    types = Data.anytypes(sch)
+    header = Data.header(sch)
+    q = Query(types, header, Vector{Any}(actions), limit, offset)
+    outsink = Data.stream!(source, q, sink, args...; append=append, kwargs...)
+    return Data.close!(outsink)
+end
+
+function query(source, actions, sink::Si; append::Bool=false, limit::(Integer|Nothing)=nothing, offset::(Integer|Nothing)=nothing) where {Si}
+    sch = Data.schema(source)
+    types = Data.anytypes(sch)
+    header = Data.header(sch)
+    q = Query(types, header, Vector{Any}(actions), limit, offset)
+    outsink = Data.stream!(source, q, sink; append=append)
+    return Data.close!(outsink)
 end
 
 unwk(T, wk) = T
 unwk(::Type{WeakRefString{T}}, wk) where {T} = wk ? WeakRefString{T} : String
+unwk(::Type{Union{Missing,WeakRefString{T}}}, wk) where {T} = wk ? Union{Missing,WeakRefString{T}} : Union{Missing,String}
 
 "Compute the Data.Schema of the resultset of executing Data.Query `q` against its source"
-function schema(q::Query{code, S, columns, e, limit, offset}, wk=true) where {code, S, columns, e, limit, offset}
+function schema(source::S, q::Query{code, columns, e, limit, offset}, wk=true) where {code, S, columns, e, limit, offset}
     types = Tuple(unwk(T(col), wk) for col in columns.parameters if selected(col))
     header = Tuple(String(name(col)) for col in columns.parameters if selected(col))
     off = have(offset) ? offset : 0
-    rows = size(Data.schema(q.source), 1)
+    rows = size(Data.schema(source), 1)
     rows = have(limit) ? min(limit, rows - off) : rows - off
     rows = (scalarfiltered(code) | grouped(code)) ? missing : rows
     return Schema(types, header, rows)
 end
-
-# function subset(T, I, i)
-#     if Base.tuple_type_head(I) == i
-#         head = Base.tuple_type_head(T)
-#         tail = Base.tuple_type_tail(I)
-#         return tail == Tuple{} ? Tuple{head} : Base.tuple_type_cons(head, subset(Base.tuple_type_tail(T), tail, i + 1))
-#     else
-#         return subset(T, I, i + 1)
-#     end
-# end
-
-# function tupletypesubset(::Type{T}, ::Type{I}) where {T, I}
-#     if @generated
-#         TT = subset(T, I, 1)
-#         return :($TT)
-#     else
-#         Tuple{(T.parameters[i] for i in I.parameters)...}
-#     end
-# end
 
 codeblock() = Expr(:block)
 macro vals(ex)
@@ -412,7 +231,7 @@ macro val(ex)
 end
 
 # generate the entire streaming loop, according to any QueryColumns passed by the user
-function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, offset)
+function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::Vector{Any}, extras::Vector{Int}, sourcetypes, limit, offset)
     streamfrom_inner_loop = codeblock()
     streamto_inner_loop = codeblock()
     pre_outer_loop = codeblock()
@@ -433,10 +252,9 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
     firstcol = nothing
     firstfilter = true
     colind = 1
-    cols = collect(columns.parameters)
     sourceinds = sortperm(cols, by=x->sourceindex(x))
     sourcecolumns = [ind=>cols[ind] for ind in sourceinds]
-
+    SF = S == Data.Row ? Data.Field : S
     starting_row = 1
     if have(offset)
         starting_row = offset + 1
@@ -452,7 +270,6 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
             # keeping track of the first streamed column is handy later
             firstcol = col
         end
-        SF = S == Data.Row ? Data.Field : S
         # streamfrom_inner_loop
         # we can skip any columns that aren't needed in the resultset; this works because the `sourcecolumns` are in sourceindex order
         while colind < sourceindex(col)
@@ -492,8 +309,12 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
             end
         end
     end
+    # streamfrom_inner_loop
+    if S == Data.Column
+        push!(streamfrom_inner_loop.args, :(cur_row = length($(@val sourceindex(firstcol)))))
+    end
     # now we loop through query result columns, to build up code blocks for streaming to Data.Sink
-    for (ind, col) in enumerate(columns.parameters)
+    for (ind, col) in enumerate(cols)
         si = sourceindex(col)
         out = sinkindex(col)
         # streamto_inner_loop
@@ -526,17 +347,17 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
         # aggregation_loop
         if grouped(col)
             push!(aggregationkeys, col)
-            push!(pre_aggregation_loop.args, :($(@vals out) = @uninit Vector{$(T(col))}(uninitialized, length(aggregates))))
+            push!(pre_aggregation_loop.args, :($(@vals out) = Vector{$(T(col))}(uninitialized, length(aggregates))))
             push!(aggregation_inner_loop.args, :($(@vals out)[i] = k[$(length(aggregationkeys))]))
         elseif !aggcomputed(col) && (selected(col) || sourceindex(col) in extras)
             push!(aggregationvalues, col)
-            push!(pre_aggregation_loop.args, :($(@vals out) = @uninit Vector{Any}(uninitialized, length(aggregates))))
+            push!(pre_aggregation_loop.args, :($(@vals out) = Vector{$(T(col))}(uninitialized, length(aggregates))))
             if selected(col)
                 push!(aggregation_inner_loop.args, :($(@vals out)[i] = q.columns[$ind].aggregate(v[$(length(aggregationvalues))])))
             end
         elseif aggcomputed(col)
             push!(aggregationcomputed, ind=>col)
-            push!(pre_aggregation_loop.args, :($(@vals out) = @uninit Vector{$(T(col))}(uninitialized, length(aggregates))))
+            push!(pre_aggregation_loop.args, :($(@vals out) = Vector{$(T(col))}(uninitialized, length(aggregates))))
         end
         if aggfiltered(col)
             push!(aggregationfiltered, col)
@@ -584,10 +405,6 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
     elseif sorted(code)
         append!(pre_outer_loop.args, :($(@vals sinkindex(col)) = $(T(col))[]) for col in sortbuffers)
     end
-    # streamfrom_inner_loop
-    if S == Data.Column
-        push!(streamfrom_inner_loop.args, :(cur_row = length($(@val sourceindex(firstcol)))))
-    end
     # aggregation_loop
     if grouped(code)
         for (ind, col) in aggregationcomputed
@@ -595,7 +412,7 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
             push!(aggregation_inner_loop.args, :($(@vals sinkindex(col))[i] = q.columns[$ind].compute($(valueargs...))))
         end
         if aggfiltered(code)
-            unshift!(post_aggregation_loop.args, :(filtered = fill(true, length(aggregates))))
+            pushfirst!(post_aggregation_loop.args, :(filtered = fill(true, length(aggregates))))
         end
         aggregation_loop = quote
             $pre_aggregation_loop
@@ -631,8 +448,7 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
                         :(vals = NamedTuple{$names, $types}(($(inds...),)))
                     else
                         exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
-                        nt = NamedTuples.make_tuple(exprs)
-                        :(vals = $nt($(inds...)))
+                        :(vals = eval(NamedTuples.make_tuple($exprs))($(inds...)))
                     end
                 push!(post_outer_loop_row_streaming_inner_loop.args,
                     :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + row, 0, Val{$knownrows})))
@@ -652,8 +468,7 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
                 :(vals = NamedTuple{$names, $types}(($(inds...),)))
             else
                 exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
-                nt = NamedTuples.make_tuple(exprs)
-                :(vals = $nt($(inds...)))
+                :(vals = eval(NamedTuples.make_tuple($exprs))($(inds...)))
             end
         push!(streamto_inner_loop.args,
             :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + sinkrow, 0, Val{$knownrows})))
@@ -691,14 +506,73 @@ function generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, 
     end
 end
 
-function Data.stream!(q::Query{code, So}, ::Type{Si}, args...; append::Bool=false, kwargs...) where {code, So, Si}
+gettransforms(sch, d::Dict{Int, <:Base.Callable}) = d
+gettransforms(sch, d::Dict{String, F}) where {F <: Base.Callable} = Dict{Int, F}(sch[x]=>f for (x, f) in d)
+const TRUE = x->true
+
+function Data.stream!(source::So, ::Type{Si}, args...;
+                        append::Bool=false,
+                        transforms::Dict=Dict{Int, Function}(),
+                        filter::Function=TRUE,
+                        columns::Vector=[],
+                        actions=[], limit=nothing, offset=nothing,
+                        kwargs...) where {So, Si}
+    if isempty(transforms)
+        acts = actions
+    elseif isempty(actions)
+        # exclude transform columns, add scalarcomputed transform column w/ same name
+        sch = Data.schema(source)
+        trns = gettransforms(sch, transforms)
+        acts = Any[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
+        names = Data.header(sch)
+        for (col, f) in trns
+            Base.insert!(acts, col, @NT(name=names[col], compute=f, computeargs=(col,)))
+        end
+    else
+        throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
+    end
+    sch = Data.schema(source)
+    types = Data.anytypes(sch)
+    header = Data.header(sch)
+    q = Query(types, header, acts, limit, offset)
+    return Data.stream!(source, q, Si, args...; append=append, kwargs...)
+end
+
+function Data.stream!(source::So, sink::Si;
+                        append::Bool=false,
+                        transforms::Dict=Dict{Int, Function}(),
+                        filter::Function=TRUE,
+                        actions=[], limit=nothing, offset=nothing,
+                        columns::Vector=[]) where {So, Si}
+    if isempty(transforms)
+        acts = actions
+    elseif isempty(actions)
+        # exclude transform columns, add scalarcomputed transform column w/ same name
+        sch = Data.schema(source)
+        trns = gettransforms(sch, transforms)
+        acts = Any[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
+        names = Data.header(sch)
+        for (col, f) in trns
+            Base.insert!(acts, col, @NT(name=names[col], compute=f, computeargs=(col,)))
+        end
+    else
+        throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
+    end
+    sch = Data.schema(source)
+    types = Data.anytypes(sch)
+    header = Data.header(sch)
+    q = Query(types, header, acts, limit, offset)
+    return Data.stream!(source, q, sink; append=append)
+end
+
+function Data.stream!(source::So, q::Query, ::Type{Si}, args...; append::Bool=false, kwargs...) where {So, Si}
     S = datatype(Si)
     sinkstreamtypes = Data.streamtypes(S)
     for sinkstreamtype in sinkstreamtypes
         if Data.streamtype(datatype(So), sinkstreamtype)
             wk = weakrefstrings(S)
-            sourceschema = Data.schema(q.source)
-            sinkschema = Data.schema(q, wk)
+            sourceschema = Data.schema(source)
+            sinkschema = Data.schema(source, q, wk)
             if wk
                 sink = S(sinkschema, sinkstreamtype, append, args...; reference=Data.reference(q), kwargs...)
             else
@@ -707,14 +581,36 @@ function Data.stream!(q::Query{code, So}, ::Type{Si}, args...; append::Bool=fals
             sourcerows = size(sourceschema, 1)
             sinkrows = size(sinkschema, 1)
             sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
-            return Data.stream!(q, sinkstreamtype, sink, sourceschema, sinkrowoffset)
+            return Data.stream!(source, q, sinkstreamtype, sink, sourceschema, sinkrowoffset)
         end
     end
     throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
 end
 
-@generated function Data.stream!(q::Query{code, So, columns, extras, limit, offset}, ::Type{S}, sink,
-                        source_schema::Data.Schema{R, T1}, sinkrowoffset) where {S <: Data.StreamType, R, T1, code, So, columns, extras, limit, offset}
+function Data.stream!(source::So, q::Query, sink::Si; append::Bool=false) where {So, Si}
+    S = datatype(Si)
+    sinkstreamtypes = Data.streamtypes(S)
+    for sinkstreamtype in sinkstreamtypes
+        if Data.streamtype(datatype(So), sinkstreamtype)
+            wk = weakrefstrings(S)
+            sourceschema = Data.schema(source)
+            sinkschema = Data.schema(source, q, wk)
+            if wk
+                sink = S(sink, sinkschema, sinkstreamtype, append; reference=Data.reference(q))
+            else
+                sink = S(sink, sinkschema, sinkstreamtype, append)
+            end
+            sourcerows = size(sourceschema, 1)
+            sinkrows = size(sinkschema, 1)
+            sinkrowoffset = ifelse(append, ifelse(ismissing(sourcerows), sinkrows, max(0, sinkrows - sourcerows)), 0)
+            return Data.stream!(source, q, sinkstreamtype, sink, sourceschema, sinkrowoffset)
+        end
+    end
+    throw(ArgumentError("`source` doesn't support the supported streaming types of `sink`: $sinkstreamtypes"))
+end
+
+@generated function Data.stream!(source, q::Query{code, columns, extras, limit, offset}, ::Type{S}, sink,
+                        sourceschema::Data.Schema{R, T1}, sinkrowoffset) where {S <: Data.StreamType, R, T1, code, columns, extras, limit, offset}
     types = T1.parameters
     sourcetypes = Tuple(types)
     # runlen = rle(sourcetypes)
@@ -724,13 +620,12 @@ end
     knownrows = R && !scalarfiltered(code) && !grouped(code)
     RR = R ? Int : Missing
     r = quote
-        rows, cols = size(source_schema)::Tuple{$RR, Int}
-        Data.isdone(q.source, 1, 1, rows, cols) && return sink
-        source = q.source
+        rows, cols = size(sourceschema)::Tuple{$RR, Int}
+        Data.isdone(source, 1, 1, rows, cols) && return sink
         sourcetypes = $sourcetypes
         N = $N
         try
-            $(generate_loop(knownrows, S, code, columns, extras, sourcetypes, limit, offset))
+            $(generate_loop(knownrows, S, code, collect(Any, columns.parameters), collect(Int, extras), collect(Any, sourcetypes), limit, offset))
         catch e
             Data.cleanup!(sink)
             rethrow(e)
@@ -738,7 +633,7 @@ end
         return sink
     end
     # @show columns
-    # println(r)
+    # println(remove_line_number_nodes(r))
     return r
 end
 

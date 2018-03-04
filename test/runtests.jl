@@ -1,16 +1,5 @@
 using DataStreams, Missings
-
-@static if VERSION < v"0.7.0-DEV.2005"
-    using Base.Test
-else
-    using Test
-end
-
-@static if !isdefined(Core, :NamedTuple)
-    using NamedTuples
-else
-    using Dates
-end
+using Compat, Compat.Dates, Compat.Test
 
 import Base: ==
 ==(a::DataStreams.Data.Schema, b::DataStreams.Data.Schema) = DataStreams.Data.types(a) == DataStreams.Data.types(b) && DataStreams.Data.header(a) == DataStreams.Data.header(b) && isequal(size(a), size(b))
@@ -39,8 +28,8 @@ rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
 hired = (Union{Date, Missing})[Date("2011-07-07"), Date("2016-02-19"), missing, Date("2002-01-05"), Date("2008-05-15")],
 fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
 )
-J = NamedTuple{(:_0, (Symbol("_$i") for i = 1:501)...,)}((["0"], ([i] for i =1:501)...,))
-K = NamedTuple{((Symbol("_$i") for i = 1:501)...,)}((([i] for i = 1:501)...,))
+J = NamedTuple{(:_0, (Symbol("_$i") for i = 1:50)...,)}((["0"], ([i] for i =1:50)...,));
+K = NamedTuple{((Symbol("_$i") for i = 1:50)...,)}((([i] for i = 1:50)...,));
 
 nms(::NamedTuple{names}) where {names} = names
 
@@ -54,10 +43,10 @@ rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
 hired = (Union{Date, Missing})[Date("2011-07-07"), Date("2016-02-19"), missing, Date("2002-01-05"), Date("2008-05-15")],
 fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
 )
-J = NamedTuples.make_tuple(vcat([:_0], (Symbol("_$i") for i = 1:501)...))(["0"], ([i] for i =1:501)...)
-K = NamedTuples.make_tuple([Symbol("_$i") for i = 1:501])(([i] for i = 1:501)...)
+J = Data.NamedTuples.make_tuple(vcat([:_0], (Symbol("_$i") for i = 1:50)...))(["0"], ([i] for i =1:50)...)
+K = Data.NamedTuples.make_tuple([Symbol("_$i") for i = 1:50])(([i] for i = 1:50)...)
 
-nms(::NT) where {NT <: NamedTuple} = fieldnames(NT)
+nms(::NT) where {NT <: Data.NamedTuples.NamedTuple} = fieldnames(NT)
 
 end # isdefined
 
@@ -70,14 +59,14 @@ J_M = Source(DataStreams.Data.Schema(collect(map(eltype, J)), nms(J), missing), 
 K_L = Source(DataStreams.Data.Schema(collect(map(eltype, K)), nms(K), 1), K);
 K_M = Source(DataStreams.Data.Schema(collect(map(eltype, K)), nms(K), missing), K);
 
-Sink(sch::DataStreams.Data.Schema, S, append, args...; reference::Vector{UInt8}=UInt8[]) = Sink(NamedTuple(sch, S, append, args...; reference=reference))
-Sink(sink, sch::DataStreams.Data.Schema, S, append; reference::Vector{UInt8}=UInt8[]) = Sink(NamedTuple(sink.nt, sch, S, append; reference=reference))
+Sink(sch::DataStreams.Data.Schema, S, append, args...; reference::Vector{UInt8}=UInt8[]) = Sink(Data.NamedTuple(sch, S, append, args...; reference=reference))
+Sink(sink, sch::DataStreams.Data.Schema, S, append; reference::Vector{UInt8}=UInt8[]) = Sink(Data.NamedTuple(sink.nt, sch, S, append; reference=reference))
 DataStreams.Data.streamtypes(::Type{Sink}) = [DataStreams.Data.Column, DataStreams.Data.Field]
 DataStreams.Data.weakrefstrings(::Type{Sink}) = true
 DataStreams.Data.streamto!(sink::Sink, ::Type{DataStreams.Data.Field}, val, row, col) =
-(C = getfield(sink.nt, col); row > length(C) ? push!(C, val) : setindex!(C, val, row); return)
+    (C = getfield(sink.nt, col); row > length(C) ? push!(C, val) : setindex!(C, val, row); return)
 DataStreams.Data.streamto!(sink::Sink, ::Type{DataStreams.Data.Column}, column, col) =
-append!(getfield(sink.nt, col), column)
+    append!(getfield(sink.nt, col), column)
 
 @testset "DataStreams" begin
 
@@ -135,54 +124,6 @@ sch = DataStreams.Data.Schema((Int,), ["col1"])
 
 end # @testset "Data.Schema"
 
-@testset "Data.transform" begin
-
-# knownrows vs. not
-sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
-sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), true)
-@test sch == sch2
-@test trans == (identity,)
-
-sch = DataStreams.Data.Schema((Int, Float64, String,), ["col1", "col2", "col3"], missing)
-sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), true)
-@test sch == sch2
-@test trans == (identity, identity, identity)
-
-sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
-f = x->string(x)
-sch2, trans = DataStreams.Data.transform(sch, Dict(1=>f), true)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (String,)
-@test trans == (f,)
-
-sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], missing)
-f1 = Float64
-f2 = x->parse(Int, x)
-sch2, trans = DataStreams.Data.transform(sch, Dict{String, Base.Callable}("col1"=>f1, "col3"=>f2), true)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Float64, Float64, VERSION < v"0.7.0-DEV.3017" ? Int : Union{Void, Int})
-@test trans == (f1, identity, f2)
-
-sch = DataStreams.Data.Schema((Int, Float64, String), ["col1", "col2", "col3"], missing)
-sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), false)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Int, Float64, String)
-@test trans == (identity, identity, identity)
-
-sch = DataStreams.Data.Schema((Union{String, Missing},), ["col1"])
-sch2, trans = DataStreams.Data.transform(sch, Dict{Int, Function}(), false)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Union{String, Missing},)
-@test trans == (identity,)
-
-sch = DataStreams.Data.Schema((Int,), ["col1"], 1)
-sch2, trans = DataStreams.Data.transform(sch, Dict("col1"=>sin), false)
-@test DataStreams.Data.header(sch) == DataStreams.Data.header(sch2)
-@test DataStreams.Data.types(sch2) == (Float64,)
-@test trans == (sin,)
-
-end # @testset "Data.transform"
-
 @testset "Data.stream!" begin
 
 ### ALL PAIRS TESTING
@@ -220,9 +161,9 @@ sink = Sink(deepcopy(J));
 Data.stream!(source, sink; append=true);
 
 sch = DataStreams.Data.schema(sink.nt)
-@test size(sch) == (2, 502)
-@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
+@test size(sch) == (2, 51)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:50)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:50)...,)
 @test sink.nt._0 == ["0", "0"]
 @test sink.nt._1 == [1, 1]
 
@@ -232,9 +173,9 @@ sink = Sink(deepcopy(J));
 Data.stream!(source, sink)
 
 sch = DataStreams.Data.schema(sink.nt)
-@test size(sch) == (1, 502)
-@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
+@test size(sch) == (1, 51)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:50)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:50)...,)
 @test sink.nt._0 == ["0"]
 @test sink.nt._1 == [1]
 
@@ -245,9 +186,9 @@ transforms = Dict(2=>x->x+1)
 Data.stream!(source, Sink, sink.nt; transforms=transforms)
 
 sch = DataStreams.Data.schema(sink.nt)
-@test size(sch) == (1, 502)
-@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
+@test size(sch) == (1, 51)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:50)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:50)...,)
 @test sink.nt._0 == ["0"]
 @test sink.nt._1 == [2]
 
@@ -258,21 +199,21 @@ transforms = Dict(2=>x->x+1)
 Data.stream!(source, Sink, sink.nt; transforms=transforms)
 
 sch = DataStreams.Data.schema(sink.nt)
-@test size(sch) == (1, 501)
-@test DataStreams.Data.header(sch) == collect("_$i" for i = 1:501)
-@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...,)
+@test size(sch) == (1, 50)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 1:50)
+@test DataStreams.Data.types(sch) == ((Int for i = 1:50)...,)
 @test sink.nt._1 == [1]
 @test sink.nt._2 == [3]
 
 # Test unparameterized NamedTuple sink directly
 # B, D, F, G, J, M
 source = J_M
-sink = Data.stream!(source, NamedTuple)
+sink = Data.stream!(source, Data.NamedTuple)
 
 sch = DataStreams.Data.schema(sink)
-@test size(sch) == (1, 502)
-@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
+@test size(sch) == (1, 51)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:50)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:50)...,)
 @test sink._0 == ["0"]
 @test sink._1 == [1]
 
@@ -285,9 +226,9 @@ transforms = Dict(2=>x->x.+1)
 Data.stream!(source, sink; transforms=transforms)
 
 sch = DataStreams.Data.schema(sink.nt)
-@test size(sch) == (1, 501)
-@test DataStreams.Data.header(sch) == collect("_$i" for i = 1:501)
-@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...,)
+@test size(sch) == (1, 50)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 1:50)
+@test DataStreams.Data.types(sch) == ((Int for i = 1:50)...,)
 @test sink.nt._1 == [1]
 @test sink.nt._2 == [3]
 
@@ -297,9 +238,9 @@ sink = Sink(deepcopy(K))
 Data.stream!(source, Sink, sink.nt; append=true)
 
 sch = DataStreams.Data.schema(sink.nt)
-@test size(sch) == (2, 501)
-@test DataStreams.Data.header(sch) == collect("_$i" for i = 1:501)
-@test DataStreams.Data.types(sch) == ((Int for i = 1:501)...,)
+@test size(sch) == (2, 50)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 1:50)
+@test DataStreams.Data.types(sch) == ((Int for i = 1:50)...,)
 @test sink.nt._1 == [1, 1]
 @test sink.nt._2 == [2, 2]
 
@@ -333,16 +274,16 @@ transforms = Dict(2=>x->x.+1)
 Data.stream!(source, Sink, sink.nt; transforms=transforms)
 
 sch = DataStreams.Data.schema(sink.nt)
-@test size(sch) == (1, 502)
-@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:501)
-@test DataStreams.Data.types(sch) == (String, (Int for i = 1:501)...,)
+@test size(sch) == (1, 51)
+@test DataStreams.Data.header(sch) == collect("_$i" for i = 0:50)
+@test DataStreams.Data.types(sch) == (String, (Int for i = 1:50)...,)
 @test sink.nt._0 == ["0"]
 @test sink.nt._1 == [2]
 
 # Test unparameterized NamedTuple sink directly
 # B, D, F, H, I, M
 source = I_M
-sink = Data.stream!(source, NamedTuple)
+sink = Data.stream!(source, Data.NamedTuple)
 
 sch = DataStreams.Data.schema(sink)
 @test size(sch) == (5, 7)
