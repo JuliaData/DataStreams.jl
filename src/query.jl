@@ -506,13 +506,18 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
     end
 end
 
-gettransforms(sch, d::Dict{Int, <:Base.Callable}) = d
-gettransforms(sch, d::Dict{String, F}) where {F <: Base.Callable} = Dict{Int, F}(sch[x]=>f for (x, f) in d)
+gettransforms(sch, d::AbstractDict{<:Integer, <:Base.Callable}) = d
+
+function gettransforms(sch, d::AbstractDict{<:AbstractString, <:Base.Callable})
+    D = Base.typename(typeof(d))
+    D(sch[x] => f for (x, f) in d)
+end
+
 const TRUE = x->true
 
 function Data.stream!(source::So, ::Type{Si}, args...;
                         append::Bool=false,
-                        transforms::Dict=Dict{Int, Function}(),
+                        transforms::AbstractDict=Dict{Int, Function}(),
                         filter::Function=TRUE,
                         columns::Vector=[],
                         actions=[], limit=nothing, offset=nothing,
@@ -540,7 +545,7 @@ end
 
 function Data.stream!(source::So, sink::Si;
                         append::Bool=false,
-                        transforms::Dict=Dict{Int, Function}(),
+                        transforms::AbstractDict=Dict{Int, Function}(),
                         filter::Function=TRUE,
                         actions=[], limit=nothing, offset=nothing,
                         columns::Vector=[]) where {So, Si}
