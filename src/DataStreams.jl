@@ -35,11 +35,11 @@ A `Data.Schema` describes a tabular dataset, i.e. a set of named, typed columns 
 
  * `Data.header(schema)` to return the header/column names in a `Data.Schema`
  * `Data.types(schema)` to return the column types in a `Data.Schema`; `Union{T, Missing}` indicates columns that may contain missing data (`missing` values)
- * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`; note that # of rows may be `nothing`, meaning unknown
+ * `Data.size(schema)` to return the (# of rows, # of columns) in a `Data.Schema`; note that # of rows may be `missing`, meaning unknown
 
 `Data.Schema` has the following constructors:
 
- * `Data.Schema()`: create an "emtpy" schema with no rows, no columns, and no column names
+ * `Data.Schema()`: create an "empty" schema with no rows, no columns, and no column names
  * `Data.Schema(types[, header, rows, meta::Dict])`: column element types are provided as a tuple or vector; column names provided as an iterable; # of rows can be an Int or `missing` to indicate unknown # of rows
 
 `Data.Schema` are indexable via column names to get the number of that column in the `Data.Schema`
@@ -69,7 +69,7 @@ mutable struct Schema{R, T}
 end
 
 function Schema(types=(), header=["Column$i" for i = 1:length(types)], rows::Union{Integer,Missing}=0, metadata::Dict=Dict())
-    !ismissing(rows) && rows < 0 && throw(ArgumentError("Invalid # of rows for Data.Schema; use `nothing` to indicate an unknown # of rows"))
+    !ismissing(rows) && rows < 0 && throw(ArgumentError("Invalid # of rows for Data.Schema; use `missing` to indicate an unknown # of rows"))
     types2 = Tuple(types)
     header2 = String[string(x) for x in header]
     cols = length(header2)
