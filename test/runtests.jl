@@ -291,6 +291,15 @@ sch = DataStreams.Data.schema(sink)
 @test DataStreams.Data.types(sch) == (Int64, Union{String, Missing}, String, Union{Float64, Missing}, Float64, Union{Date, Missing}, DateTime)
 @test sink.id == [1,2,3,4,5]
 
+# Test transforms do not raise a BoundsError
+source = J_L
+sink = Sink(deepcopy(J))
+transforms = Dict(i => x -> x for i in 2:50)
+sink = Data.stream!(source, Sink, sink.nt; transforms=transforms)
+
+sch = DataStreams.Data.schema(sink.nt)
+@test size(sch) == (1, 51)
+
 end # @testset "Data.stream!"
 
 @testset "DataStreams NamedTuple" begin
