@@ -528,10 +528,14 @@ function Data.stream!(source::So, ::Type{Si}, args...;
         # exclude transform columns, add scalarcomputed transform column w/ same name
         sch = Data.schema(source)
         trns = gettransforms(sch, transforms)
-        acts = Any[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
+        acts = Vector{Any}(undef, sch.cols)
         names = Data.header(sch)
-        for (col, f) in trns
-            Base.insert!(acts, col, @NT(name=names[col], compute=f, computeargs=(col,)))
+        for col in 1:sch.cols
+            acts[col] = if haskey(trns, col)
+                @NT(name=names[col], compute=trns[col], computeargs=(col,))
+            else
+                @NT(col=col)
+            end
         end
     else
         throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
@@ -555,10 +559,14 @@ function Data.stream!(source::So, sink::Si;
         # exclude transform columns, add scalarcomputed transform column w/ same name
         sch = Data.schema(source)
         trns = gettransforms(sch, transforms)
-        acts = Any[@NT(col=i) for i = 1:sch.cols if !haskey(trns, i)]
+        acts = Vector{Any}(undef, sch.cols)
         names = Data.header(sch)
-        for (col, f) in trns
-            Base.insert!(acts, col, @NT(name=names[col], compute=f, computeargs=(col,)))
+        for col in 1:sch.cols
+            acts[col] = if haskey(trns, col)
+                @NT(name=names[col], compute=trns[col], computeargs=(col,))
+            else
+                @NT(col=col)
+            end
         end
     else
         throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
