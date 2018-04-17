@@ -192,7 +192,7 @@ function query end
 
 function query(source, actions=[], sink::Type{Si}=Table, args...; append::Bool=false, limit::(Integer|Nothing)=nothing, offset::(Integer|Nothing)=nothing, kwargs...) where {Si}
     sch = Data.schema(source)
-    types = Data.anytypes(sch)
+    types = Data.anytypes(sch, weakrefstrings(Si))
     header = Data.header(sch)
     q = Query(types, header, Vector{Any}(actions), limit, offset)
     outsink = Data.stream!(source, q, sink, args...; append=append, kwargs...)
@@ -201,7 +201,7 @@ end
 
 function query(source, actions, sink::Si; append::Bool=false, limit::(Integer|Nothing)=nothing, offset::(Integer|Nothing)=nothing) where {Si}
     sch = Data.schema(source)
-    types = Data.anytypes(sch)
+    types = Data.anytypes(sch, weakrefstrings(Si))
     header = Data.header(sch)
     q = Query(types, header, Vector{Any}(actions), limit, offset)
     outsink = Data.stream!(source, q, sink; append=append)
@@ -542,7 +542,7 @@ function Data.stream!(source::So, ::Type{Si}, args...;
         throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
     end
     sch = Data.schema(source)
-    types = Data.anytypes(sch)
+    types = Data.anytypes(sch, weakrefstrings(Si))
     header = Data.header(sch)
     q = Query(types, header, acts, limit, offset)
     return Data.stream!(source, q, Si, args...; append=append, kwargs...)
@@ -573,7 +573,7 @@ function Data.stream!(source::So, sink::Si;
         throw(ArgumentError("`transforms` is deprecated, use only `actions` to specify column transformations"))
     end
     sch = Data.schema(source)
-    types = Data.anytypes(sch)
+    types = Data.anytypes(sch, weakrefstrings(Si))
     header = Data.header(sch)
     q = Query(types, header, acts, limit, offset)
     return Data.stream!(source, q, sink; append=append)

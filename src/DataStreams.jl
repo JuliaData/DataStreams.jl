@@ -80,7 +80,15 @@ Schema(types, rows::Union{Integer,Missing}, metadata::Dict=Dict()) = Schema(type
 
 header(sch::Schema) = sch.header
 types(sch::Schema{R, T}) where {R, T} = Tuple(T.parameters)
-anytypes(sch::Schema{R, T}) where {R, T} = collect(T.parameters)
+
+function anytypes(sch::Schema{R, T}, weakref) where {R, T}
+    types = T.parameters
+    if !weakref
+        types = map(x->x >: Missing ? ifelse(Missings.T(x) <: WeakRefString, Union{String, Missing}, x) : ifelse(x <: WeakRefString, String, x), types)
+    end
+    return collect(Any, types)
+end
+
 metadata(sch::Schema) = sch.metadata
 Base.size(sch::Schema) = (sch.rows, sch.cols)
 Base.size(sch::Schema, i::Int) = ifelse(i == 1, sch.rows, ifelse(i == 2, sch.cols, 0))

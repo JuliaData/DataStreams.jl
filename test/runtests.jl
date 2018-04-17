@@ -1,4 +1,4 @@
-using DataStreams, Missings
+using DataStreams, Missings, WeakRefStrings
 using Compat, Compat.Dates, Compat.Test
 
 import Base: ==
@@ -330,6 +330,42 @@ sink2 = Data.stream!(sink, Data.RowTable)
 rows = Data.rows(source)
 for (i, row) in enumerate(rows)
     @test row[1] == source[1][i]
+end
+
+end
+
+@testset "DataStreams with WeakRefStrings" begin
+# Test streaming from a source that has a WeakRefStrings column
+# to a sink that converts WeakRefStrings to Strings (like Data.RowTable)
+
+@static if isdefined(Core, :NamedTuple)
+source = (a=[1,2,3], b=[4.0, 5.0, 6.0], c=[WeakRefString{UInt8}("hey"), WeakRefString{UInt8}("ho"), WeakRefString{UInt8}("neighbor")])
+else
+# 0.6 Vector of NamedTuples testing
+source = @NT(a=[1,2,3], b=[4.0, 5.0, 6.0], c=[WeakRefString{UInt8}("het"), WeakRefString{UInt8}("ho"), WeakRefString{UInt8}("neighbor")])
+end
+
+sink = Data.stream!(source, Data.RowTable)
+@test Data.header(Data.schema(sink)) == ["a", "b", "c"]
+@test size(Data.schema(sink)) == (3, 3)
+
+sink = Data.stream!(source, sink)
+@test Data.header(Data.schema(sink)) == ["a", "b", "c"]
+@test size(Data.schema(sink)) == (3, 3)
+
+sink = Data.stream!(source, sink, append=true)
+@test Data.header(Data.schema(sink)) == ["a", "b", "c"]
+@test size(Data.schema(sink)) == (6, 3)
+
+sink2 = Data.stream!(sink, Data.RowTable)
+@test Data.header(Data.schema(sink)) == ["a", "b", "c"]
+@test size(Data.schema(sink)) == (6, 3)
+
+rows = Data.rows(source)
+for (i, row) in enumerate(rows)
+    @test row[1] == source[1][i]
+    @test row[2] == source[2][i]
+    @test row[3] == source[3][i]
 end
 
 end
