@@ -115,7 +115,8 @@ function Query(types::Vector{Any}, header::Vector{String}, actions::Vector{Any},
     aggcompute_extras = Set()
     si = 0
     outcol = 1
-    isempty(actions) && (actions = [@NT(col=i,) for i = 1:len])
+    NT2 = NamedTuples.create_namedtuple_type([:col])
+    isempty(actions) && (actions = [NT2(i) for i = 1:len])
     for x in actions
         # if not provided, set sort index order according to order columns are given
         sortindex = get(x, :sortindex) do
@@ -526,6 +527,8 @@ function Data.stream!(source::So, ::Type{Si}, args...;
     if isempty(transforms)
         acts = actions
     elseif isempty(actions)
+        NT1 = NamedTuples.create_namedtuple_type([:name, :compute, :computeargs])
+        NT2 = NamedTuples.create_namedtuple_type([:col])        
         # exclude transform columns, add scalarcomputed transform column w/ same name
         sch = Data.schema(source)
         trns = gettransforms(sch, transforms)
@@ -533,9 +536,9 @@ function Data.stream!(source::So, ::Type{Si}, args...;
         names = Data.header(sch)
         for col in 1:sch.cols
             acts[col] = if haskey(trns, col)
-                @NT(name=names[col], compute=trns[col], computeargs=(col,))
+                NT1(names[col], trns[col], (col,))
             else
-                @NT(col=col)
+                NT2(col)
             end
         end
     else
@@ -557,6 +560,8 @@ function Data.stream!(source::So, sink::Si;
     if isempty(transforms)
         acts = actions
     elseif isempty(actions)
+        NT1 = NamedTuples.create_namedtuple_type([:name, :compute, :computeargs])
+        NT2 = NamedTuples.create_namedtuple_type([:col])
         # exclude transform columns, add scalarcomputed transform column w/ same name
         sch = Data.schema(source)
         trns = gettransforms(sch, transforms)
@@ -564,9 +569,9 @@ function Data.stream!(source::So, sink::Si;
         names = Data.header(sch)
         for col in 1:sch.cols
             acts[col] = if haskey(trns, col)
-                @NT(name=names[col], compute=trns[col], computeargs=(col,))
+                NT1(names[col], trns[col], (col,))
             else
-                @NT(col=col)
+                NT2(col)
             end
         end
     else
