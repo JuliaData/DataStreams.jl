@@ -43,8 +43,8 @@ rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
 hired = (Union{Date, Missing})[Date("2011-07-07"), Date("2016-02-19"), missing, Date("2002-01-05"), Date("2008-05-15")],
 fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
 )
-J = Data.NamedTuples.make_tuple(vcat([:_0], (Symbol("_$i") for i = 1:50)...))(["0"], ([i] for i =1:50)...)
-K = Data.NamedTuples.make_tuple([Symbol("_$i") for i = 1:50])(([i] for i = 1:50)...)
+J = Data.NamedTuples.make_tuple(vcat([:_0], (Symbol("_$i") for i = 1:50)...))((["0"], ([i] for i =1:50)...),)
+K = Data.NamedTuples.make_tuple([Symbol("_$i") for i = 1:50])((([i] for i = 1:50)...),)
 
 nms(::NT) where {NT <: Data.NamedTuples.NamedTuple} = fieldnames(NT)
 

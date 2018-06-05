@@ -449,7 +449,7 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
                         :(vals = NamedTuple{$names, $types}(($(inds...),)))
                     else
                         exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
-                        :(vals = eval(NamedTuples.make_tuple($exprs))($(inds...)))
+                        :(vals = eval(NamedTuples.make_tuple($exprs))(($(inds...),)))
                     end
                 push!(post_outer_loop_row_streaming_inner_loop.args,
                     :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + row, 0, Val{$knownrows})))
@@ -469,7 +469,7 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
                 :(vals = NamedTuple{$names, $types}(($(inds...),)))
             else
                 exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
-                :(vals = eval(NamedTuples.make_tuple($exprs))($(inds...)))
+                :(vals = eval(NamedTuples.make_tuple($exprs))(($(inds...),)))
             end
         push!(streamto_inner_loop.args,
             :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + sinkrow, 0, Val{$knownrows})))

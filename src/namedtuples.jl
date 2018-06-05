@@ -163,7 +163,7 @@ function NamedTuple(sch::Data.Schema{R}, ::Type{S}=Data.Field,
         sink = @static if isdefined(Core, :NamedTuple)
                 NamedTuple{names}(Tuple(allocate(types[i], rows, reference) for i = 1:length(types)))
             else
-                NamedTuples.make_tuple(collect(names))((allocate(types[i], rows, reference) for i = 1:length(types))...)
+                NamedTuples.make_tuple(collect(names))(allocate(types[i], rows, reference) for i = 1:length(types))
             end
         sch.rows = rows
     end
@@ -231,7 +231,7 @@ else
     names = fieldnames(NT)
     types = Tuple(fieldtype(NT, i) for i = 1:nfields(NT))
     vals = Tuple(:(Data.streamfrom(rows.source, Data.Field, $typ, row, $col)) for (col, typ) in zip(1:length(names), types) )
-    r = :(($NT($(vals...)), row + 1))
+    r = :(($NT(($(vals...),)), row + 1))
     # println(r)
     return r
 end
