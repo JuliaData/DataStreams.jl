@@ -484,8 +484,7 @@ end
 datatype(T) = Core.eval(parentmodule(Base.unwrap_unionall(T)), nameof(T))
 
 @static if !isdefined(Core, :NamedTuple)
-include("nt.jl")
-using .NamedTuples
+using NamedTuples
 function Base.get(f::Function, nt::NamedTuple, k)
     return haskey(nt, k) ? nt[k] : f()
 end
