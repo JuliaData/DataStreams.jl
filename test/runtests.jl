@@ -337,12 +337,16 @@ end
 @testset "DataStreams with WeakRefStrings" begin
 # Test streaming from a source that has a WeakRefStrings column
 # to a sink that converts WeakRefStrings to Strings (like Data.RowTable)
+wk = WeakRefStringArray(Any[], Union{Missing, WeakRefString{UInt8}}[])
+push!(wk, "hey")
+push!(wk, "ho")
+push!(wk, "neighbor")
 
 @static if isdefined(Core, :NamedTuple)
-source = (a=[1,2,3], b=[4.0, 5.0, 6.0], c=[WeakRefString{UInt8}("hey"), WeakRefString{UInt8}("ho"), WeakRefString{UInt8}("neighbor")])
+source = (a=[1,2,3], b=[4.0, 5.0, 6.0], c=wk)
 else
 # 0.6 Vector of NamedTuples testing
-source = @NT(a=[1,2,3], b=[4.0, 5.0, 6.0], c=[WeakRefString{UInt8}("het"), WeakRefString{UInt8}("ho"), WeakRefString{UInt8}("neighbor")])
+source = @NT(a=[1,2,3], b=[4.0, 5.0, 6.0], c=wk)
 end
 
 sink = Data.stream!(source, Data.RowTable)

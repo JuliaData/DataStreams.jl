@@ -481,7 +481,7 @@ function skiprows!(source, S, from, to)
     end
 end
 
-datatype(T) = eval(parentmodule(Base.unwrap_unionall(T)), nameof(T))
+datatype(T) = Core.eval(parentmodule(Base.unwrap_unionall(T)), nameof(T))
 
 @static if !isdefined(Core, :NamedTuple)
 include("nt.jl")

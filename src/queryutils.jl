@@ -73,7 +73,7 @@ end
         q = quote
             # SoA => AoS
             len = length(aggkeys[1])
-            aos = Vector{$K}(uninitialized, len)
+            aos = Vector{$K}(undef, len)
             for i = 1:len
                 aos[i] = tuple($(inds...))
             end
