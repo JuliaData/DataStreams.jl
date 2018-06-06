@@ -501,13 +501,13 @@ const ColNT2 = Ref{Any}()
 
 function __init__()
     ColNT[] = @static if VERSION < v"0.7.0-DEV.2738"
-        nt = NamedTuples.create_namedtuple_type([:col])
+        nt = NamedTuples.create_namedtuple_type([:col], current_module())
         x->nt(x...)
     else
         NamedTuple{(:col,)}
     end
     ColNT2[] = @static if VERSION < v"0.7.0-DEV.2738"
-        nt2 = NamedTuples.create_namedtuple_type([:name, :compute, :computeargs])
+        nt2 = NamedTuples.create_namedtuple_type([:name, :compute, :computeargs], current_module())
         x->nt2(x...)
     else
         NamedTuple{(:name, :compute, :computeargs)}
