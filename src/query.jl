@@ -115,7 +115,7 @@ function Query(types::Vector{Any}, header::Vector{String}, actions::Vector{Any},
     aggcompute_extras = Set()
     si = 0
     outcol = 1
-    isempty(actions) && (actions = [ColNT[](i) for i = 1:len])
+    isempty(actions) && (actions = [ColNT[]((i,)) for i = 1:len])
     for x in actions
         # if not provided, set sort index order according to order columns are given
         sortindex = get(x, :sortindex) do
@@ -535,7 +535,7 @@ function Data.stream!(source::So, ::Type{Si}, args...;
             acts[col] = if haskey(trns, col)
                 ColNT2[]((names[col], trns[col], (col,)))
             else
-                ColNT[](col)
+                ColNT[]((col,))
             end
         end
     else
@@ -566,7 +566,7 @@ function Data.stream!(source::So, sink::Si;
             acts[col] = if haskey(trns, col)
                 ColNT2[]((names[col], trns[col], (col,)))
             else
-                ColNT[](col)
+                ColNT[]((col,))
             end
         end
     else
