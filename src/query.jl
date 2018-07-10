@@ -97,7 +97,7 @@ end
 for (f, arg) in (:code=>:c, :T=>:t, :sourceindex=>:so, :sinkindex=>:si, :name=>:n, :sort=>:s, :args=>:a)
     @eval $f(::Type{<:QueryColumn{c, t, so, si, n, s, a}}) where {c, t, so, si, n, s, a} = $arg
     @eval $f(::QueryColumn{c, t, so, si, n, s, a}) where {c, t, so, si, n, s, a} = $arg
-    @eval $f(::Compat.Nothing) = missing
+    @eval $f(::Nothing) = missing
 end
 
 # E type parameter is for a tuple of integers corresponding to
@@ -445,12 +445,7 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
                 names = Tuple(name(x) for x in selectedcols)
                 types = Tuple{(T(x) for x in selectedcols)...}
                 inds = Tuple(:($(@vals sinkindex(x))[row]) for x in selectedcols)
-                vals = @static if isdefined(Core, :NamedTuple)
-                        :(vals = NamedTuple{$names, $types}(($(inds...),)))
-                    else
-                        exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
-                        :(vals = eval(NamedTuples.make_tuple($exprs))($(inds...)))
-                    end
+                vals = :(vals = NamedTuple{$names, $types}(($(inds...),)))
                 push!(post_outer_loop_row_streaming_inner_loop.args,
                     :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + row, 0, Val{$knownrows})))
             end
@@ -465,12 +460,7 @@ function generate_loop(knownrows::Bool, S::DataType, code::QueryCodeType, cols::
         names = Tuple(name(x) for x in selectedcols)
         types = Tuple{(T(x) for x in selectedcols)...}
         inds = Tuple(:($(@val sourceindex(x))) for x in selectedcols)
-        vals = @static if isdefined(Core, :NamedTuple)
-                :(vals = NamedTuple{$names, $types}(($(inds...),)))
-            else
-                exprs = [:($nm::$typ) for (nm, typ) in zip(names, types.parameters)]
-                :(vals = eval(NamedTuples.make_tuple($exprs))($(inds...)))
-            end
+        vals = :(vals = NamedTuple{$names, $types}(($(inds...),)))
         push!(streamto_inner_loop.args,
             :(Data.streamto!(sink, Data.Row, $vals, sinkrowoffset + sinkrow, 0, Val{$knownrows})))
     end
