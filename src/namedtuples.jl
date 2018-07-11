@@ -7,18 +7,16 @@ function Data.isdone(source::RowTable, row, col)
     return Data.isdone(source, row, col, rows, rows > 0 ? length(rows[1]) : 0)
 end
 Data.streamtype(::Type{Array}, ::Type{Data.Field}) = true
-@inline Data.streamfrom(source::RowTable, ::Type{Data.Field}, ::Type{T}, row, col) where {T} = source[row][col]
+Data.streamfrom(source::RowTable, ::Type{Data.Field}, ::Type{T}, row, col) where {T} = source[row][col]
 Data.streamtypes(::Type{Array}) = [Data.Row]
 Data.accesspattern(::RowTable) = Data.RandomAccess()
 
-@inline Data.streamto!(sink::RowTable, ::Type{Data.Row}, val, row, col) =
+Data.streamto!(sink::RowTable, ::Type{Data.Row}, val, row, col) =
     row > length(sink) ? push!(sink, val) : setindex!(sink, val, row)
-@inline Data.streamto!(sink::RowTable, ::Type{Data.Row}, val, row, col::Int, ::Type{Val{false}}) =
+Data.streamto!(sink::RowTable, ::Type{Data.Row}, val, row, col::Int, ::Type{Val{false}}) =
     push!(sink, val)
-@inline Data.streamto!(sink::RowTable, ::Type{Data.Row}, val, row, col::Int, ::Type{Val{true}}) =
+Data.streamto!(sink::RowTable, ::Type{Data.Row}, val, row, col::Int, ::Type{Val{true}}) =
     setindex!(sink, val, row)
-
-if isdefined(Core, :NamedTuple)
 
 # Basically, a NamedTuple with any # of AbstractVector elements, accessed by column name
 "A default column-oriented \"table\" that supports both the `Data.Source` and `Data.Sink` interfaces. Can be used like `Data.stream!(source, Data.Table). It is represented as a NamedTuple of AbstractVectors.`"
@@ -34,25 +32,6 @@ function Data.schema(df::NamedTuple{names, T}) where {names, T}
     return Data.Schema(Type[eltype(A) for A in T.parameters],
                         collect(map(string, names)), length(df) == 0 ? 0 : length(getfield(df, 1)))
 end
-
-else # if isdefined(Core, :NamedTuple)
-
-# Constraint relaxed for compatability; NamedTuples.NamedTuple does not have parameters
-"A default column-oriented \"table\" that supports both the `Data.Source` and `Data.Sink` interfaces. Can be used like `Data.stream!(source, Data.Table). It is represented as a NamedTuple of AbstractVectors.`"
-const Table = NamedTuple
-
-function Data.schema(rt::RowTable{T}) where {T}
-    return Data.Schema(Type[fieldtype(T, i) for i = 1:nfields(T)],
-                        collect(map(string, fieldnames(T))), length(rt))
-end
-# NamedTuple Data.Source implementation
-# compute Data.Schema on the fly
-function Data.schema(df::NamedTuple)
-    return Data.Schema(Type[eltype(A) for A in values(df)],
-                        collect(map(string, keys(df))), length(df) == 0 ? 0 : length(getfield(df, 1)))
-end
-
-end # if isdefined(Core, :NamedTuple)
 
 Data.isdone(source::Table, row, col, rows, cols) = row > rows || col > cols
 function Data.isdone(source::Table, row, col)
@@ -82,7 +61,7 @@ allocate(::Type{T}, rows, ref) where {T} = Vector{T}(undef, rows)
 # special case for WeakRefStrings
 allocate(::Type{WeakRefString{T}}, rows, ref) where {T} = WeakRefStringArray(ref, WeakRefString{T}, rows)
 allocate(::Type{Union{WeakRefString{T}, Missing}}, rows, ref) where {T} = WeakRefStringArray(ref, Union{WeakRefString{T}, Missing}, rows)
-allocate(::Type{Missing}, rows, ref) = missings(rows)
+allocate(::Type{Missing}, rows, ref) = fill(missing, rows)
 
 # NamedTuple doesn't allow duplicate names, so make sure there are no duplicates in our column names
 function makeunique(names::Vector{String})
@@ -111,12 +90,7 @@ function Array(sch::Data.Schema{R}, ::Type{Data.Row}, append::Bool=false, args..
         rows = ifelse(!R, 0, sch.rows)
         names = makeunique(Data.header(sch))
         # @show rows, names, types
-        sink = @static if isdefined(Core, :NamedTuple)
-                Vector{NamedTuple{names, Tuple{types...}}}(undef, rows)
-            else
-                exprs = [:($nm::$typ) for (nm, typ) in zip(names, types)]
-                Vector{eval(NamedTuples.make_tuple(exprs))}(undef, rows)
-            end
+        sink = Vector{NamedTuple{names, Tuple{types...}}}(undef, rows)
         sch.rows = rows
     end
     return sink
@@ -160,11 +134,7 @@ function NamedTuple(sch::Data.Schema{R}, ::Type{S}=Data.Field,
         rows = ifelse(S == Data.Column, 0, ifelse(!R, 0, sch.rows))
         names = makeunique(Data.header(sch))
 
-        sink = @static if isdefined(Core, :NamedTuple)
-                NamedTuple{names}(Tuple(allocate(types[i], rows, reference) for i = 1:length(types)))
-            else
-                NamedTuples.make_tuple(collect(names))((allocate(types[i], rows, reference) for i = 1:length(types))...)
-            end
+        sink = NamedTuple{names}(Tuple(allocate(types[i], rows, reference) for i = 1:length(types)))
         sch.rows = rows
     end
     return sink
@@ -177,13 +147,13 @@ end
 
 # Data.streamto! is easy-peasy, if there are known # of rows from source, we pre-allocated
 # so we can just set the value; otherwise (didn't pre-allocate), we push!/append! the values
-@inline Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int) =
+Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int) =
     (A = getfield(sink, col); row > length(A) ? push!(A, val) : setindex!(A, val, row))
-@inline Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int, ::Type{Val{false}}) =
+Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int, ::Type{Val{false}}) =
     push!(getfield(sink, col), val)
-@inline Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int, ::Type{Val{true}}) =
+Data.streamto!(sink::Table, ::Type{Data.Field}, val, row, col::Int, ::Type{Val{true}}) =
     getfield(sink, col)[row] = val
-@inline Data.streamto!(sink::Table, ::Type{Data.Column}, column, row, col::Int, knownrows) =
+Data.streamto!(sink::Table, ::Type{Data.Column}, column, row, col::Int, knownrows) =
     append!(getfield(sink, col), column)
 
 
@@ -203,17 +173,10 @@ function rows(source::S) where {S}
     sch = Data.schema(source)
     names = makeunique(Data.header(sch))
     types = Data.types(sch)
-    NT = @static if isdefined(Core, :NamedTuple)
-            NamedTuple{names, Tuple{types...}}
-        else
-            exprs = [:($nm::$typ) for (nm, typ) in zip(names, types)]
-            eval(NamedTuples.make_tuple(exprs))
-        end
-    return Rows{S, NT}(source)
+    return Rows{S, NamedTuple{names, Tuple{types...}}}(source)
 end
 
 Base.start(rows::Rows) = 1
-@static if isdefined(Core, :NamedTuple)
 
 @generated function Base.next(rows::Rows{S, NamedTuple{names, types}}, row::Int) where {S, names, types}
     vals = Tuple(:(Data.streamfrom(rows.source, Data.Field, $typ, row, $col)) for (col, typ) in zip(1:length(names), types.parameters) )
@@ -221,23 +184,8 @@ Base.start(rows::Rows) = 1
     # println(r)
     return r
 end
+
 @generated function Base.done(rows::Rows{S, NamedTuple{names, types}}, row::Int) where {S, names, types}
     cols = length(names)
     return :(Data.isdone(rows.source, row, $cols))
-end
-else
-
-@generated function Base.next(rows::Rows{S, NT}, row::Int) where {S, NT}
-    names = fieldnames(NT)
-    types = Tuple(fieldtype(NT, i) for i = 1:nfields(NT))
-    vals = Tuple(:(Data.streamfrom(rows.source, Data.Field, $typ, row, $col)) for (col, typ) in zip(1:length(names), types) )
-    r = :(($NT($(vals...)), row + 1))
-    # println(r)
-    return r
-end
-@generated function Base.done(rows::Rows{S, NT}, row::Int) where {S, NT}
-    cols = length(fieldnames(NT))
-    return :(Data.isdone(rows.source, row, $cols))
-end
-
 end

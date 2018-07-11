@@ -4,27 +4,8 @@ module DataStreams
 module Data
 
 using Missings, WeakRefStrings
-using Compat
 
-@static if isdefined(Core, :Inference)
-    import Core.Inference: return_type
-else
-    import Core.Compiler: return_type
-end
-@static if !isdefined(Base, :parentmodule)
-    const parentmodule = Base.datatype_module
-end
-@static if !isdefined(Base, :nameof)
-    const nameof = Base.datatype_name
-end
-
-@static if !isdefined(Base, :pushfirst!)
-    const pushfirst! = unshift!
-end
-
-@static if !isdefined(Base, :Nothing)
-    const Nothing = Void
-end
+import Core.Compiler: return_type
 
 # Data.Schema
 """
@@ -483,37 +464,6 @@ end
 
 datatype(T) = Core.eval(parentmodule(Base.unwrap_unionall(T)), nameof(T))
 
-@static if !isdefined(Core, :NamedTuple)
-using NamedTuples
-function Base.get(f::Function, nt::NamedTuple, k)
-    return haskey(nt, k) ? nt[k] : f()
-end
-
-else
-macro NT(args...)
-    return esc(:(($(args...),)))
-end
-end
-export @NT
-
-const ColNT = Ref{Any}()
-const ColNT2 = Ref{Any}()
-
-function __init__()
-    ColNT[] = @static if VERSION < v"0.7.0-DEV.2738"
-        nt = NamedTuples.create_namedtuple_type([:col], current_module())
-        x->nt(x...)
-    else
-        NamedTuple{(:col,)}
-    end
-    ColNT2[] = @static if VERSION < v"0.7.0-DEV.2738"
-        nt2 = NamedTuples.create_namedtuple_type([:name, :compute, :computeargs], current_module())
-        x->nt2(x...)
-    else
-        NamedTuple{(:name, :compute, :computeargs)}
-    end
-end
-
 include("namedtuples.jl")
 include("query.jl")
 
@@ -521,6 +471,5 @@ end # module Data
 
 using .Data
 export Data
-export @NT
 
 end # module DataStreams

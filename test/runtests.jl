@@ -1,5 +1,4 @@
-using DataStreams, Missings, WeakRefStrings
-using Compat, Compat.Dates, Compat.Test
+using DataStreams, Missings, WeakRefStrings, Dates, Test
 
 import Base: ==
 ==(a::DataStreams.Data.Schema, b::DataStreams.Data.Schema) = DataStreams.Data.types(a) == DataStreams.Data.types(b) && DataStreams.Data.header(a) == DataStreams.Data.header(b) && isequal(size(a), size(b))
@@ -18,8 +17,6 @@ mutable struct Sink{T}
     nt::T
 end
 
-@static if isdefined(Core, :NamedTuple)
-
 I = (id = Int64[1, 2, 3, 4, 5],
 firstname = (Union{String, Missing})["Benjamin", "Wayne", "Sean", "Charles", missing],
 lastname = String["Chavez", "Burke", "Richards", "Long", "Rose"],
@@ -32,23 +29,6 @@ J = NamedTuple{(:_0, (Symbol("_$i") for i = 1:50)...,)}((["0"], ([i] for i =1:50
 K = NamedTuple{((Symbol("_$i") for i = 1:50)...,)}((([i] for i = 1:50)...,));
 
 nms(::NamedTuple{names}) where {names} = names
-
-else # isdefined
-
-I = @NT(id = Int64[1, 2, 3, 4, 5],
-firstname = (Union{String, Missing})["Benjamin", "Wayne", "Sean", "Charles", missing],
-lastname = String["Chavez", "Burke", "Richards", "Long", "Rose"],
-salary = (Union{Float64, Missing})[missing, 46134.1, 45046.2, 30555.6, 88894.1],
-rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
-hired = (Union{Date, Missing})[Date("2011-07-07"), Date("2016-02-19"), missing, Date("2002-01-05"), Date("2008-05-15")],
-fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
-)
-J = Data.NamedTuples.make_tuple(vcat([:_0], (Symbol("_$i") for i = 1:50)...))(["0"], ([i] for i =1:50)...)
-K = Data.NamedTuples.make_tuple([Symbol("_$i") for i = 1:50])(([i] for i = 1:50)...)
-
-nms(::NT) where {NT <: Data.NamedTuples.NamedTuple} = fieldnames(NT)
-
-end # isdefined
 
 I_L = Source(DataStreams.Data.Schema(collect(map(eltype, I)), nms(I), 5), I);
 I_M = Source(DataStreams.Data.Schema(collect(map(eltype, I)), nms(I), missing), I);
@@ -304,12 +284,7 @@ end # @testset "Data.stream!"
 
 @testset "DataStreams NamedTuple" begin
 
-@static if isdefined(Core, :NamedTuple)
 source = (a=[1,2,3], b=[4.0, 5.0, 6.0], c=["hey", "ho", "neighbor"])
-else
-# 0.6 Vector of NamedTuples testing
-source = @NT(a=[1,2,3], b=[4.0, 5.0, 6.0], c=["hey", "ho", "neighbor"])
-end
 
 sink = Data.stream!(source, Data.RowTable)
 @test Data.header(Data.schema(sink)) == ["a", "b", "c"]
@@ -342,12 +317,7 @@ push!(wk, "hey")
 push!(wk, "ho")
 push!(wk, "neighbor")
 
-@static if isdefined(Core, :NamedTuple)
 source = (a=[1,2,3], b=[4.0, 5.0, 6.0], c=wk)
-else
-# 0.6 Vector of NamedTuples testing
-source = @NT(a=[1,2,3], b=[4.0, 5.0, 6.0], c=wk)
-end
 
 sink = Data.stream!(source, Data.RowTable)
 @test Data.header(Data.schema(sink)) == ["a", "b", "c"]
