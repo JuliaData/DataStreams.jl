@@ -386,12 +386,6 @@ end
 
 end
 
-@testset "Data.rows/Data.dvrows" begin
-
-
-
-end # @testset
-
 include("query.jl")
 
 end # @testset "DataStreams"
