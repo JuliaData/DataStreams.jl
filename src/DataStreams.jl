@@ -3,7 +3,7 @@ module DataStreams
 
 module Data
 
-using Missings, WeakRefStrings
+using Missings, WeakRefStrings, DataValues
 
 import Core.Compiler: return_type
 
