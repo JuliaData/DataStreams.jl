@@ -1,4 +1,4 @@
-using DataStreams, Missings, WeakRefStrings, Dates, Test
+using DataStreams, Missings, WeakRefStrings, Dates, Test, DataValues
 
 import Base: ==
 ==(a::DataStreams.Data.Schema, b::DataStreams.Data.Schema) = DataStreams.Data.types(a) == DataStreams.Data.types(b) && DataStreams.Data.header(a) == DataStreams.Data.header(b) && isequal(size(a), size(b))
@@ -307,6 +307,48 @@ for (i, row) in enumerate(rows)
     @test row[1] == source[1][i]
 end
 
+I = (id = Int64[1, 2, 3, 4, 5],
+     firstname = (Union{String, Missing})["Benjamin", "Wayne", "Sean", "Charles", missing],
+     lastname = String["Chavez", "Burke", "Richards", "Long", "Rose"],
+     salary = (Union{Float64, Missing})[missing, 46134.1, 45046.2, 30555.6, 88894.1],
+     rate = Float64[39.44, 33.8, 15.64, 17.67, 34.6],
+     hired = (Union{Date, Missing})[Date("2011-07-07"), Date("2016-02-19"), missing, Date("2002-01-05"), Date("2008-05-15")],
+     fired = DateTime[DateTime("2016-04-07T14:07:00"), DateTime("2015-03-19T15:01:00"), DateTime("2006-11-18T05:07:00"), DateTime("2002-07-18T06:24:00"), DateTime("2007-09-29T12:09:00")]
+)
+
+rows = Data.rows(I)
+@test length(rows) == 5
+@test eltype(rows) == NamedTuple{(:id, :firstname, :lastname, :salary, :rate, :hired, :fired),Tuple{Int64,Union{Missing, String},String,Union{Missing, Float64},Float64,Union{Missing, Date},DateTime}}
+for (i, row) in enumerate(rows)
+    @test row[1] === I[1][i]
+    @test row[2] === I[2][i]
+    @test row[3] === I[3][i]
+    @test row[4] === I[4][i]
+    @test row[5] === I[5][i]
+    @test row[6] === I[6][i]
+    @test row[7] === I[7][i]
+end
+
+dvrows = Data.dvrows(I)
+@test length(dvrows) == 5
+@test eltype(dvrows) == NamedTuple{(:id, :firstname, :lastname, :salary, :rate, :hired, :fired),Tuple{Int64,DataValues.DataValue{String},String,DataValues.DataValue{Float64},Float64,DataValues.DataValue{Date},DateTime}}
+
+eq(x, y) = x === y
+eq(dv::DataValue, x) = dv == x
+eq(x, dv::DataValue) = x == dv
+eq(dv::DataValue, ::Missing) = isna(dv)
+eq(::Missing, dv::DataValue) = isna(dv)
+
+for (i, row) in enumerate(dvrows)
+    @test eq(row[1], I[1][i])
+    @test eq(row[2], I[2][i])
+    @test eq(row[3], I[3][i])
+    @test eq(row[4], I[4][i])
+    @test eq(row[5], I[5][i])
+    @test eq(row[6], I[6][i])
+    @test eq(row[7], I[7][i])
+end
+
 end
 
 @testset "DataStreams with WeakRefStrings" begin
@@ -343,6 +385,12 @@ for (i, row) in enumerate(rows)
 end
 
 end
+
+@testset "Data.rows/Data.dvrows" begin
+
+
+
+end # @testset
 
 include("query.jl")
 

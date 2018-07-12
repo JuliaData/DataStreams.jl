@@ -176,16 +176,51 @@ function rows(source::S) where {S}
     return Rows{S, NamedTuple{names, Tuple{types...}}}(source)
 end
 
-Base.start(rows::Rows) = 1
-
-@generated function Base.next(rows::Rows{S, NamedTuple{names, types}}, row::Int) where {S, names, types}
-    vals = Tuple(:(Data.streamfrom(rows.source, Data.Field, $typ, row, $col)) for (col, typ) in zip(1:length(names), types.parameters) )
-    r = :(($(NamedTuple{names, types})(($(vals...),)), row + 1))
-    # println(r)
-    return r
-end
-
-@generated function Base.done(rows::Rows{S, NamedTuple{names, types}}, row::Int) where {S, names, types}
+@generated function Base.iterate(rows::Rows{S, NamedTuple{names, types}}, row::Int=1) where {S, names, types}
     cols = length(names)
-    return :(Data.isdone(rows.source, row, $cols))
+    vals = Tuple(:(Data.streamfrom(rows.source, Data.Field, $typ, row, $col)) for (col, typ) in zip(1:length(names), types.parameters) )
+    q = quote
+        Data.isdone(rows.source, row, $cols) && return nothing
+        return ($(NamedTuple{names, types})(($(vals...),)), row + 1)
+    end
+    # println(q)
+    return q
 end
+
+# DataValue-compatible row iteration for Data.Sources
+datavaluetype(::Type{T}) where {T <: DataValue} = T
+datavaluetype(::Type{T}) where {T} = T
+datavaluetype(::Type{Union{T, Missing}}) where {T} = DataValue{T}
+
+nondatavaluetype(::Type{DataValue{T}}) where {T} = Union{T, Missing}
+nondatavaluetype(::Type{T}) where {T} = T
+
+struct DVRows{S, NT}
+    source::S
+end
+
+Base.eltype(rows::DVRows{S, NT}) where {S, NT} = NT
+function Base.length(rows::DVRows)
+    sch = Data.schema(rows.source)
+    return size(sch, 1)
+end
+
+"Returns a NamedTuple-iterator of any `Data.Source`"
+function dvrows(source::S) where {S}
+    sch = Data.schema(source)
+    names = makeunique(Data.header(sch))
+    types = map(DataValues.datavaluetype, Data.types(sch))
+    return DVRows{S, NamedTuple{names, Tuple{types...}}}(source)
+end
+
+@generated function Base.iterate(rows::DVRows{S, NamedTuple{names, types}}, row::Int=1) where {S, names, types}
+    cols = length(names)
+    vals = Tuple(:($typ(Data.streamfrom(rows.source, Data.Field, $(nondatavaluetype(typ)), row, $col))) for (col, typ) in zip(1:length(names), types.parameters) )
+    q = quote
+        Data.isdone(rows.source, row, $cols) && return nothing
+        return ($(NamedTuple{names, types})(($(vals...),)), row + 1)
+    end
+    # println(q)
+    return q
+end
+
