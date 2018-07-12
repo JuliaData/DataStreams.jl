@@ -209,7 +209,7 @@ end
 function dvrows(source::S) where {S}
     sch = Data.schema(source)
     names = makeunique(Data.header(sch))
-    types = map(DataValues.datavaluetype, Data.types(sch))
+    types = map(datavaluetype, Data.types(sch))
     return DVRows{S, NamedTuple{names, Tuple{types...}}}(source)
 end
 
