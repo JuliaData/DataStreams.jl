@@ -176,16 +176,18 @@ function rows(source::S) where {S}
     return Rows{S, NamedTuple{names, Tuple{types...}}}(source)
 end
 
-Base.start(rows::Rows) = 1
-
-@generated function Base.next(rows::Rows{S, NamedTuple{names, types}}, row::Int) where {S, names, types}
-    vals = Tuple(:(Data.streamfrom(rows.source, Data.Field, $typ, row, $col)) for (col, typ) in zip(1:length(names), types.parameters) )
-    r = :(($(NamedTuple{names, types})(($(vals...),)), row + 1))
-    # println(r)
-    return r
-end
-
-@generated function Base.done(rows::Rows{S, NamedTuple{names, types}}, row::Int) where {S, names, types}
-    cols = length(names)
-    return :(Data.isdone(rows.source, row, $cols))
+function Base.iterate(rows::Rows{S, NamedTuple{names, types}}, row::Int=1) where {S, names, types}
+    if @generated
+        cols = length(names)
+        vals = Tuple(:(Data.streamfrom(rows.source, Data.Field, $typ, row, $col)) for (col, typ) in zip(1:cols, types.parameters) )
+        r = :(($(NamedTuple{names, types})(($(vals...),)), row + 1))
+        # println(r)
+        return quote
+            Data.isdone(rows.source, row, $cols) && return nothing
+            $r
+        end
+    else
+        cols = length(names)
+        return NamedTuple{names, types}(Tuple(Data.streamfrom(rows.source, Data.Field, T, row, i) for (i, T) in enumerate(types.parameters)))
+    end
 end
