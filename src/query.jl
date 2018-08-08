@@ -213,13 +213,13 @@ unwk(::Type{WeakRefString{T}}, wk) where {T} = wk ? WeakRefString{T} : String
 unwk(::Type{Union{Missing,WeakRefString{T}}}, wk) where {T} = wk ? Union{Missing,WeakRefString{T}} : Union{Missing,String}
 
 "Compute the Data.Schema of the resultset of executing Data.Query `q` against its source"
-function schema(source::S, q::Query{code, columns, e, limit, offset}, wk=true) where {code, S, columns, e, limit, offset}
+function schema(source::S, q::Query{c, columns, e, limit, offset}, wk=true) where {c, S, columns, e, limit, offset}
     types = Tuple(unwk(T(col), wk) for col in columns.parameters if selected(col))
     header = Tuple(String(name(col)) for col in columns.parameters if selected(col))
     off = have(offset) ? offset : 0
     rows = size(Data.schema(source), 1)
     rows = have(limit) ? min(limit, rows - off) : rows - off
-    rows = (scalarfiltered(code) | grouped(code)) ? missing : rows
+    rows = (scalarfiltered(c) | grouped(c)) ? missing : rows
     return Schema(types, header, rows)
 end
 
