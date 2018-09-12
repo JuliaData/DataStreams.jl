@@ -280,6 +280,12 @@ sink = Data.stream!(source, Sink, sink.nt; transforms=transforms)
 sch = DataStreams.Data.schema(sink.nt)
 @test size(sch) == (1, 51)
 
+# Issue #84
+source = (a = String["b"],)
+sink = Sink(deepcopy(source))
+streamed = Data.stream!(source, sink, transforms=Dict("a" => x->Symbol(x)))
+@test streamed.nt == (a = Symbol[:b],)
+
 end # @testset "Data.stream!"
 
 @testset "DataStreams NamedTuple" begin

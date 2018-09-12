@@ -500,7 +500,7 @@ end
 gettransforms(sch, d::AbstractDict{<:Integer, <:Base.Callable}) = d
 
 function gettransforms(sch, d::AbstractDict{<:AbstractString, <:Base.Callable})
-    D = Base.typename(typeof(d))
+    D = Base.typename(typeof(d)).wrapper
     D(sch[x] => f for (x, f) in d)
 end
 
