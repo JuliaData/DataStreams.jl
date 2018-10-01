@@ -514,7 +514,7 @@ function __init__()
     end
 end
 
-include("namedtuples.jl")
+include("_namedtuples.jl")
 include("query.jl")
 
 end # module Data
