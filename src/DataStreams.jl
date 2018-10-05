@@ -464,7 +464,7 @@ end
 
 datatype(T) = Core.eval(parentmodule(Base.unwrap_unionall(T)), nameof(T))
 
-include("namedtuples.jl")
+include("_namedtuples.jl")
 include("query.jl")
 
 end # module Data
