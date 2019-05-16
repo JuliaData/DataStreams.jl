@@ -59,8 +59,8 @@ allocate(::Type{T}, rows, ref) where {T} = Vector{T}(undef, rows)
 # allocate(::Type{T}, rows, ref) where {T <: Union{CategoricalValue, Missing}} =
 #     CategoricalArray{CategoricalArrays.unwrap_catvalue_type(T)}(rows)
 # special case for WeakRefStrings
-allocate(::Type{WeakRefString{T}}, rows, ref) where {T} = WeakRefStringArray(ref, WeakRefString{T}, rows)
-allocate(::Type{Union{WeakRefString{T}, Missing}}, rows, ref) where {T} = WeakRefStringArray(ref, Union{WeakRefString{T}, Missing}, rows)
+allocate(::Type{WeakRefString{T}}, rows, ref) where {T} = StringVector{String}(ref, rows)
+allocate(::Type{Union{WeakRefString{T}, Missing}}, rows, ref) where {T} = StringVector{String}(ref, rows)
 allocate(::Type{Missing}, rows, ref) = fill(missing, rows)
 
 # NamedTuple doesn't allow duplicate names, so make sure there are no duplicates in our column names
@@ -124,9 +124,9 @@ function NamedTuple(sch::Data.Schema{R}, ::Type{S}=Data.Field,
             foreach(col->resize!(col, newsize), sink)
             sch.rows = newsize
         end
-        # take care of a possible reference from source by letting WeakRefStringArrays hold on to them
+        # take care of a possible reference from source by letting StringVector hold on to them
         if !isempty(reference)
-            foreach(col-> col isa WeakRefStringArray && push!(col.data, reference), sink)
+            foreach(col-> col isa StringVector && append!(col.buffer, reference), sink)
         end
     else
         # allocating a fresh NamedTuple Sink; append is irrelevant
