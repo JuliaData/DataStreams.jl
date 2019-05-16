@@ -1,5 +1,6 @@
 name = "DataStreams"
 uuid = "9a8bc11e-79be-5b39-94d7-1ccc349a1a85"
+version = "0.4.2"
 
 [deps]
 Missings = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
