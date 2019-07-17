@@ -1,3 +1,5 @@
+# This package is DEPRECATED in favor of https://github.com/JuliaData/Tables.jl
+
 
 # DataStreams
 
